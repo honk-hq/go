@@ -4,7 +4,7 @@
 //
 //	honk loud "Disk 91%"                                   # shortcut per horn: light beep loud long blast
 //	honk send --title "Backup finished" --message "42 s" --severity beep
-//	honk uhoh --group-key db/backup --title "Backup failed" --message "exit 1"
+//	honk uhoh db/backup "Backup failed" "exit 1"             # GROUP_KEY [TITLE] MESSAGE
 //	honk phew --group-key db/backup --title "Backup OK" --message "fixed"
 //
 // HONK_URL and HONK_KEY come from the environment. Run `honk help` for flags and exit codes.
@@ -71,9 +71,12 @@ func usage() string {
 Usage:
   honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]   shortcut with that severity
   honk send --message TEXT [flags]
-  honk uhoh --group-key KEY --message TEXT [flags]   something broke (event_type problem, severity long)
-  honk phew --group-key KEY --message TEXT [flags]   it works again (event_type recovery, severity beep)
+  honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]   something broke (event_type problem, severity long)
+  honk phew GROUP_KEY [TITLE] MESSAGE [flags]   it works again (event_type recovery, severity beep)
   honk version
+
+uhoh and phew: two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE. They
+also take --group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both).
 
 The Honk scale (--severity): light (info), beep (success), loud (warning), long (error),
 blast (critical). Canonical names work too. "problem" and "recovery" are the old names of
@@ -146,7 +149,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.StringVar(&m.Source, "source", getenv("HONK_SOURCE"), "source, ≤ 64 characters (e.g. $(hostname) for cron); default $HONK_SOURCE, else the server's \"api\"")
 	fs.StringVar(&m.Environment, "environment", getenv("HONK_ENVIRONMENT"), "environment, ≤ 32 characters; default $HONK_ENVIRONMENT")
 	fs.StringVar(&m.Channel, "channel", getenv("HONK_CHANNEL"), "channel, ≤ 64 characters; default $HONK_CHANNEL")
-	fs.StringVar(&m.GroupKey, "group-key", "", "group key, ≤ 128 characters (required for uhoh/phew)")
+	fs.StringVar(&m.GroupKey, "group-key", "", "group key, ≤ 128 characters (uhoh/phew need one: this flag or the GROUP_KEY argument)")
 	if cmd == "send" {
 		fs.StringVar((*string)(&m.EventType), "event-type", "", "event, problem, recovery")
 	}
@@ -156,7 +159,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.Var(&actions, "action", "button `TITLE=URL`, e.g. \"Call Emily=tel:+15550134\" (https://, mailto:, tel:, sms:); repeatable, up to 3")
 	fs.Var(meta, "meta", "metadata key=value (string) or key:=value (JSON number/boolean); repeatable")
 	fs.IntVar(&m.TTLSeconds, "ttl", 0, "push lifetime in seconds, 60–86400 (default 3600)")
-	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter that orders uhoh/phew of one group (needs --group-key)")
+	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter that orders uhoh/phew of one group (needs a group key)")
 	fs.StringVar(&key, "idempotency-key", getenv("HONK_IDEMPOTENCY_KEY"), "stable key for this event, reused on retries; default a new UUIDv7")
 	fs.DurationVar(&timeout, "timeout", 5*time.Second, "timeout of one attempt")
 	fs.DurationVar(&dead, "deadline", 30*time.Second, "total time budget, retries included")
@@ -165,9 +168,13 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.BoolVar(&quiet, "quiet", false, "print nothing on success")
 	fs.BoolVar(&dryRun, "dry-run", false, "validate and print the JSON body without sending")
 	fs.Usage = func() {
-		if shortcut {
+		switch {
+		case shortcut:
 			fmt.Fprintf(stderr, "Usage: %s %s [TITLE] MESSAGE [flags]\n\nFlags:\n", prog, cmd)
-		} else {
+		case eventType != "":
+			fmt.Fprintf(stderr, "Usage: %s %s GROUP_KEY [TITLE] MESSAGE [flags]\n", prog, cmd)
+			fmt.Fprintf(stderr, "   or: %s %s --group-key KEY [--title TEXT] --message TEXT [flags]\n\nFlags:\n", prog, cmd)
+		default:
 			fmt.Fprintf(stderr, "Usage: %s %s [flags]\n\nFlags:\n", prog, cmd)
 		}
 		fs.PrintDefaults()
@@ -189,6 +196,28 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 		rest = fs.Args()[1:]
 	}
 	switch {
+	case len(positional) > 0 && eventType != "":
+		// GROUP_KEY [TITLE] MESSAGE replaces --group-key, --title and --message: never both.
+		var mixed []string
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "group-key" || f.Name == "title" || f.Name == "message" {
+				mixed = append(mixed, "--"+f.Name)
+			}
+		})
+		if len(mixed) > 0 {
+			fmt.Fprintf(stderr, "%s: %s takes either GROUP_KEY [TITLE] MESSAGE or --group-key/--title/--message, not both (got arguments and %s)\n",
+				prog, cmd, strings.Join(mixed, ", "))
+			return exitUsage
+		}
+		switch len(positional) {
+		case 2:
+			m.GroupKey, m.Message = positional[0], positional[1]
+		case 3:
+			m.GroupKey, m.Title, m.Message = positional[0], positional[1], positional[2]
+		default:
+			fmt.Fprintf(stderr, "%s: %s takes GROUP_KEY [TITLE] MESSAGE (quote them), got %d argument(s)\n", prog, cmd, len(positional))
+			return exitUsage
+		}
 	case len(positional) > 0 && !shortcut:
 		fmt.Fprintf(stderr, "%s: unexpected argument %q (use --message)\n", prog, positional[0])
 		return exitUsage

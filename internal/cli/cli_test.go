@@ -222,12 +222,95 @@ func TestUhohPhewAreProblemRecovery(t *testing.T) {
 	}
 }
 
+// uhoh/phew (and problem/recovery) take GROUP_KEY [TITLE] MESSAGE as arguments: two are
+// GROUP_KEY MESSAGE, three GROUP_KEY TITLE MESSAGE. Other flags go anywhere; mixing the
+// arguments with --group-key, --title or --message is refused.
+func TestUhohPhewPositional(t *testing.T) {
+	m := newCLIMock(t, 202, accepted, nil)
+	env := map[string]string{"HONK_URL": m.URL, "HONK_KEY": testKey}
+	cases := []struct {
+		args []string
+		in   string
+		want map[string]any
+	}{
+		{[]string{"uhoh", "backup/db-1", "Backup failed", "Exit code 1"},
+			"", map[string]any{"title": "Backup failed", "message": "Exit code 1", "severity": "error", "group_key": "backup/db-1", "event_type": "problem"}},
+		{[]string{"phew", "backup/db-1", "Backup is back", "All good"},
+			"", map[string]any{"title": "Backup is back", "message": "All good", "severity": "success", "group_key": "backup/db-1", "event_type": "recovery"}},
+		{[]string{"uhoh", "oven/kitchen", "The cake is burning"},
+			"", map[string]any{"message": "The cake is burning", "severity": "error", "group_key": "oven/kitchen", "event_type": "problem"}},
+		{[]string{"phew", "oven/kitchen", "--severity", "light", "Cake saved", "--source", "oven-pi"},
+			"", map[string]any{"message": "Cake saved", "severity": "info", "source": "oven-pi", "group_key": "oven/kitchen", "event_type": "recovery"}},
+		{[]string{"uhoh", "--channel", "home", "oven/kitchen", "Smoke", "-", "--source-sequence", "4"},
+			"Oven at 260 °C\n", map[string]any{"title": "Smoke", "message": "Oven at 260 °C", "severity": "error", "channel": "home", "group_key": "oven/kitchen", "event_type": "problem", "source_sequence": 4}},
+		{[]string{"problem", "backup/db-1", "Backup failed", "Exit code 1"},
+			"", map[string]any{"title": "Backup failed", "message": "Exit code 1", "severity": "error", "group_key": "backup/db-1", "event_type": "problem"}},
+		{[]string{"recovery", "backup/db-1", "All good"},
+			"", map[string]any{"message": "All good", "severity": "success", "group_key": "backup/db-1", "event_type": "recovery"}},
+	}
+	for i, tc := range cases {
+		code, out, errOut := runCLI(t, env, tc.in, tc.args...)
+		if code != exitOK || out != "msg_1\n" {
+			t.Fatalf("%v: code %d out %q err %q", tc.args, code, out, errOut)
+		}
+		got, _ := json.Marshal(m.bodies[i])
+		want, _ := json.Marshal(tc.want)
+		if string(got) != string(want) {
+			t.Errorf("%v\n got %s\nwant %s", tc.args, got, want)
+		}
+	}
+
+	// The arguments and the flags build the very same request.
+	n := len(m.bodies)
+	for _, args := range [][]string{
+		{"uhoh", "backup/db-1", "Backup failed", "Exit code 1", "--idempotency-key", "k-1"},
+		{"uhoh", "--group-key", "backup/db-1", "--title", "Backup failed", "--message", "Exit code 1", "--idempotency-key", "k-1"},
+		{"phew", "backup/db-1", "All good", "--idempotency-key", "k-2"},
+		{"phew", "--group-key", "backup/db-1", "--message", "All good", "--idempotency-key", "k-2"},
+	} {
+		if code, _, e := runCLI(t, env, "", args...); code != exitOK {
+			t.Fatalf("%v: %d %s", args, code, e)
+		}
+	}
+	for i := n; i < n+4; i += 2 {
+		a, _ := json.Marshal(m.bodies[i])
+		b, _ := json.Marshal(m.bodies[i+1])
+		if string(a) != string(b) || m.keys[i] != m.keys[i+1] {
+			t.Errorf("arguments and flags differ\n args  %s %s\n flags %s %s", a, m.keys[i], b, m.keys[i+1])
+		}
+	}
+
+	sent := len(m.bodies)
+	for _, tc := range []struct {
+		args []string
+		msg  string
+	}{
+		{[]string{"uhoh", "backup/db-1", "Exit code 1", "--message", "x"}, "honk: uhoh takes either GROUP_KEY [TITLE] MESSAGE or --group-key/--title/--message, not both (got arguments and --message)\n"},
+		{[]string{"phew", "--group-key", "a", "b", "c"}, "honk: phew takes either GROUP_KEY [TITLE] MESSAGE or --group-key/--title/--message, not both (got arguments and --group-key)\n"},
+		{[]string{"problem", "g", "t", "m", "--title", "x", "--group-key", "h"}, "(got arguments and --group-key, --title)\n"},
+		{[]string{"uhoh", "Backup failed"}, "honk: uhoh takes GROUP_KEY [TITLE] MESSAGE (quote them), got 1 argument(s)\n"},
+		{[]string{"phew", "a", "b", "c", "d"}, "honk: phew takes GROUP_KEY [TITLE] MESSAGE (quote them), got 4 argument(s)\n"},
+		{[]string{"uhoh", "", "Exit code 1"}, "honk: uhoh needs --group-key\n"},
+		{[]string{"send", "backup/db-1", "x"}, `honk: unexpected argument "backup/db-1" (use --message)`},
+	} {
+		code, _, e := runCLI(t, env, "", tc.args...)
+		if code != exitUsage || (!strings.HasSuffix(e, tc.msg) && !strings.HasPrefix(e, tc.msg)) {
+			t.Errorf("%v: code %d stderr %q (want %q)", tc.args, code, e, tc.msg)
+		}
+	}
+	if len(m.bodies) != sent {
+		t.Errorf("a refused command was sent: %v", m.bodies[sent:])
+	}
+}
+
 func TestHelpShowsHonk(t *testing.T) {
 	code, out, _ := runCLI(t, nil, "", "help")
 	if code != exitOK {
 		t.Fatalf("help: %d", code)
 	}
-	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk", "\n  honk uhoh --group-key", "\n  honk phew --group-key", "\n  honk send", `Run "honk send -h"`} {
+	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk", "\n  honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]",
+		"\n  honk phew GROUP_KEY [TITLE] MESSAGE [flags]", "two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE",
+		"--group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both)", "\n  honk send", `Run "honk send -h"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q:\n%s", want, out)
 		}
@@ -238,8 +321,15 @@ func TestHelpShowsHonk(t *testing.T) {
 		}
 	}
 	_, _, e := runCLI(t, nil, "", "uhoh", "-h")
-	if !strings.HasPrefix(e, "Usage: honk uhoh [flags]") || !strings.Contains(e, "required for uhoh/phew") {
+	if !strings.HasPrefix(e, "Usage: honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]\n   or: honk uhoh --group-key KEY [--title TEXT] --message TEXT [flags]\n") ||
+		!strings.Contains(e, "uhoh/phew need one: this flag or the GROUP_KEY argument") {
 		t.Errorf("uhoh -h: %q", e)
+	}
+	if _, _, e := runCLI(t, nil, "", "recovery", "-h"); !strings.HasPrefix(e, "Usage: honk recovery GROUP_KEY [TITLE] MESSAGE [flags]\n") {
+		t.Errorf("recovery -h: %q", e)
+	}
+	if _, _, e := runCLI(t, nil, "", "send", "-h"); !strings.HasPrefix(e, "Usage: honk send [flags]\n") {
+		t.Errorf("send -h: %q", e)
 	}
 	_, _, e = runCLI(t, nil, "", "loud", "-h")
 	if !strings.HasPrefix(e, "Usage: honk loud [TITLE] MESSAGE [flags]") || !strings.Contains(e, "| honk send --message -") {
