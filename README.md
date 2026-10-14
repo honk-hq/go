@@ -19,7 +19,7 @@ c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know.")
 Or from a shell, cron or CI:
 
 ```sh
-pg_dump app > /backup/app.sql || honk uhoh --group-key backup/db-1 --title "Backup failed" --message "Exit code $?"
+pg_dump app > /backup/app.sql || honk uhoh backup/db-1 "Backup failed" "Exit code $?"
 honk beep "Someone bought 3 rubber chickens" "Order 1042, €2.97"
 ```
 
@@ -273,8 +273,9 @@ honk loud "Disk 91%"                                   # shortcut: light, beep, 
 honk beep "Backup finished" "nightly pg_dump took 42 s" # [TITLE] MESSAGE, flags anywhere
 honk send --title "Disk almost full" --message "/var at 91%" --severity loud \
   --group-key "disk/$(hostname)/var" --source "$(hostname)" --meta host="$(hostname)" --meta used:=91
-honk uhoh --group-key db/backup --title "Backup failed" --message "pg_dump exited with 1"
-honk phew --group-key db/backup --title "Backup OK"     --message "pg_dump finished"
+honk uhoh backup/db-1 "Backup failed" "Exit code 1"    # GROUP_KEY [TITLE] MESSAGE
+honk phew backup/db-1 "Backup is back" "All good"
+honk phew --group-key backup/db-1 --title "Backup is back" --message "All good"   # the same, with flags
 tail -c 8000 /var/log/backup.log | honk send --title "Backup log" --message -   # message from stdin
 honk send --message "Front door" --image-url https://cam.example.com/snap.jpg --priority high
 honk loud "Disk 91%" "/var on app-01" --action "Open Grafana=https://grafana.example.com/d/disk"
@@ -306,7 +307,10 @@ CI (GitHub Actions), with one key per run attempt so the CLI's own retries never
 ```
 
 Shortcuts `honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]` fix the severity and
-take the text as arguments. `send`, `uhoh` and `phew` take flags only:
+take the text as arguments. `honk uhoh|phew GROUP_KEY [TITLE] MESSAGE [flags]` take the group
+key and the text as arguments: two arguments are `GROUP_KEY MESSAGE`, three are
+`GROUP_KEY TITLE MESSAGE`. Or give them as `--group-key`, `--title` and `--message`, but not
+both ways at once (that is a usage error, exit 2). `send` takes flags only. The flags:
 `--title`, `--message` (`-` = stdin), `--severity` (horn or canonical name), `--priority`, `--category`,
 `--source`, `--environment`, `--channel`, `--group-key`, `--event-type` (send only),
 `--occurred-at` (RFC 3339 or `now`), `--url`, `--image-url`, `--action TITLE=URL` (repeatable,

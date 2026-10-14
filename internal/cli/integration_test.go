@@ -48,6 +48,17 @@ func TestIntegrationCLI(t *testing.T) {
 	if code, out, e := runCLI(t, env, "", "recovery", "--group-key", "it/cli/"+run, "--title", "Job OK", "--message", "exit 0", "--idempotency-key", key+"-r", "--json"); code != exitOK || !strings.Contains(out, `"duplicate":true`) {
 		t.Fatalf("recovery: %d %q %s", code, out, e)
 	}
+	// GROUP_KEY [TITLE] MESSAGE as arguments: the same request as the flags (a replay).
+	pos := "it/cli/" + run + "/pos"
+	if code, _, e := runCLI(t, env, "", "uhoh", pos, "Backup failed", "Exit code 1", "--idempotency-key", key+"-pos", "--quiet"); code != exitOK {
+		t.Fatalf("uhoh GROUP_KEY TITLE MESSAGE: %d %s", code, e)
+	}
+	if code, out, e := runCLI(t, env, "", "uhoh", "--group-key", pos, "--title", "Backup failed", "--message", "Exit code 1", "--idempotency-key", key+"-pos", "--json"); code != exitOK || !strings.Contains(out, `"duplicate":true`) {
+		t.Fatalf("uhoh flags after arguments: %d %q %s", code, out, e)
+	}
+	if code, _, e := runCLI(t, env, "", "phew", pos, "Backup is back", "All good", "--quiet"); code != exitOK {
+		t.Fatalf("phew GROUP_KEY TITLE MESSAGE: %d %s", code, e)
+	}
 	if code, _, e := runCLI(t, env, "", "loud", "Disk 91%", "/var on cli-it "+run, "--quiet"); code != exitOK {
 		t.Fatalf("loud shortcut: %d %s", code, e)
 	}

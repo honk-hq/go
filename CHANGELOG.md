@@ -13,7 +13,12 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - The CLI is now called `honk`: `go install github.com/honk-me/honk-go/cmd/honk@latest`. Its
   subcommands `uhoh` and `phew` are the new names of `problem` and `recovery` (same flags,
   same request). Help, usage, error messages and `version` say `honk`, also when the CLI runs
-  as `honk-me`.
+  as `honk-me`: `honk-me version` prints `honk 0.3.0`.
+- CLI: `honk uhoh GROUP_KEY [TITLE] MESSAGE` and `honk phew GROUP_KEY [TITLE] MESSAGE` (also
+  as `problem`/`recovery`), e.g. `honk uhoh backup/db-1 "Backup failed" "Exit code 1"`. Two
+  arguments are `GROUP_KEY MESSAGE`, three are `GROUP_KEY TITLE MESSAGE`; other flags can go
+  anywhere. The `--group-key`/`--title`/`--message` form works as before; mixing it with the
+  arguments is a usage error (exit 2).
 
 ### Changed
 - `Send`, `Problem` and `Recovery` are now aliases of `Honk`, `Uhoh` and `Phew`. They are not
