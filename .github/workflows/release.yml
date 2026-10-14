@@ -1,8 +1,9 @@
 # Runs when a tag vX.Y.Z is pushed (the monorepo's sdk-mirror workflow pushes it for a monorepo
 # tag sdk-go-vX.Y.Z). The tag alone publishes the module: the Go proxy and pkg.go.dev serve any
 # tagged version of a public repository. This checks the tag against honk.Version, runs the
-# tests, attaches the honk-me CLI binaries to the GitHub release (GoReleaser, GITHUB_TOKEN only)
-# and asks the proxy for the new version so pkg.go.dev lists it right away.
+# tests, attaches the honk CLI binaries (with honk-me, its old name) to the GitHub release
+# (GoReleaser, GITHUB_TOKEN only) and asks the proxy for the new version so pkg.go.dev lists it
+# right away.
 name: release
 
 on:
@@ -65,7 +66,7 @@ jobs:
         run: |
           awk -v h="## [$VERSION]" 'index($0, h) == 1 {f = 1; next} f && /^## \[/ {exit} f' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           # shellcheck disable=SC2016 # the backticks are a literal Markdown code fence
-          printf '\n```sh\ngo get %s@v%s\ngo install %s/cmd/honk-me@v%s\n```\n' "$MODULE" "$VERSION" "$MODULE" "$VERSION" >> "$RUNNER_TEMP/notes.md"
+          printf '\n```sh\ngo get %s@v%s\ngo install %s/cmd/honk@v%s\n```\n' "$MODULE" "$VERSION" "$MODULE" "$VERSION" >> "$RUNNER_TEMP/notes.md"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'

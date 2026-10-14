@@ -1,9 +1,20 @@
-# Builds the honk-me CLI for the GitHub release (release.yml). Check locally with
+# Builds the honk CLI for the GitHub release (release.yml). Every archive holds two binaries:
+# honk, and honk-me, its old name, kept so existing scripts keep working (both are thin mains
+# around internal/cli). Check locally with
 #   goreleaser check && goreleaser release --snapshot --clean
 version: 2
-project_name: honk-me
+project_name: honk
 
 builds:
+  - id: honk
+    main: ./cmd/honk
+    binary: honk
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: '{{ .CommitTimestamp }}'
   - id: honk-me
     main: ./cmd/honk-me
     binary: honk-me

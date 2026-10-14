@@ -2,7 +2,7 @@ package honk
 
 import "time"
 
-// Option adjusts one Send (or helper) call: the idempotency key, or message fields.
+// Option adjusts one Honk (or helper) call: the idempotency key, or message fields.
 type Option func(*sendCall)
 
 type sendCall struct {
@@ -15,7 +15,7 @@ type sendCall struct {
 func WithIdempotencyKey(key string) Option { return func(c *sendCall) { c.idempotencyKey = key } }
 
 // WithSeverity sets the severity: a horn name (honk.Loud) or canonical value, any case
-// (helpers like Problem default it; Light…Blast fix it).
+// (helpers like Uhoh default it; Light…Blast fix it).
 func WithSeverity(s Severity) Option { return func(c *sendCall) { c.msg.Severity = s } }
 
 // WithPriority sets the declared priority (urgent needs a key with allow_urgent).
