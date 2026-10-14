@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	honk "github.com/honk-me/honk-go"
 )
 
 const testKey = "honk_ab12cd34ef56_0123456789abcdefghijABCDEFGHIJ0123"
@@ -173,8 +175,78 @@ func TestDryRunAndVersion(t *testing.T) {
 		t.Fatalf("dry run %d %q", code, out)
 	}
 	code, out, _ = runCLI(t, nil, "", "version")
-	if code != 0 || !strings.HasPrefix(out, "honk-me 0.") {
+	if code != 0 || out != "honk "+honk.Version+"\n" {
 		t.Fatalf("version %d %q", code, out)
+	}
+}
+
+// uhoh and phew are the new names of problem and recovery: same flags, same request.
+func TestUhohPhewAreProblemRecovery(t *testing.T) {
+	m := newCLIMock(t, 202, accepted, nil)
+	env := map[string]string{"HONK_URL": m.URL, "HONK_KEY": testKey, "HONK_SOURCE": "oven-pi"}
+	flags := func(key string) []string {
+		return []string{"--group-key", "oven/kitchen", "--title", "The cake is burning", "--message", "-", "--channel", "home",
+			"--meta", "celsius:=260", "--source-sequence", "3", "--idempotency-key", key, "--quiet"}
+	}
+	for _, pair := range [][2]string{{"uhoh", "problem"}, {"phew", "recovery"}} {
+		for _, cmd := range pair {
+			if code, out, e := runCLI(t, env, "Oven at 260 °C\n", append([]string{cmd}, flags(pair[0])...)...); code != exitOK || out != "" {
+				t.Fatalf("%s: %d %q %s", cmd, code, out, e)
+			}
+		}
+	}
+	if len(m.bodies) != 4 {
+		t.Fatalf("%d requests", len(m.bodies))
+	}
+	for i, want := range []string{"problem", "recovery"} {
+		fresh, old := m.bodies[2*i], m.bodies[2*i+1]
+		a, _ := json.Marshal(fresh)
+		b, _ := json.Marshal(old)
+		if string(a) != string(b) || m.keys[2*i] != m.keys[2*i+1] {
+			t.Errorf("%s: new and old name differ\n new %s key %s\n old %s key %s", want, a, m.keys[2*i], b, m.keys[2*i+1])
+		}
+		if fresh["event_type"] != want || fresh["group_key"] != "oven/kitchen" || fresh["message"] != "Oven at 260 °C" {
+			t.Errorf("%s body %s", want, a)
+		}
+	}
+	if m.bodies[0]["severity"] != "error" || m.bodies[2]["severity"] != "success" {
+		t.Errorf("default severities: %v / %v", m.bodies[0]["severity"], m.bodies[2]["severity"])
+	}
+	if code, _, e := runCLI(t, env, "", "phew", "--message", "x", "--severity", "light", "--group-key", "g", "--dry-run"); code != exitOK || e != "" {
+		t.Errorf("phew --severity: %d %q", code, e)
+	}
+	for _, cmd := range []string{"uhoh", "phew"} {
+		if code, _, e := runCLI(t, env, "", cmd, "--message", "x"); code != exitUsage || e != "honk: "+cmd+" needs --group-key\n" {
+			t.Errorf("%s without --group-key: %d %q", cmd, code, e)
+		}
+	}
+}
+
+func TestHelpShowsHonk(t *testing.T) {
+	code, out, _ := runCLI(t, nil, "", "help")
+	if code != exitOK {
+		t.Fatalf("help: %d", code)
+	}
+	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk", "\n  honk uhoh --group-key", "\n  honk phew --group-key", "\n  honk send", `Run "honk send -h"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help lacks %q:\n%s", want, out)
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "honk-me") {
+			t.Errorf("help still shows honk-me: %q", line)
+		}
+	}
+	_, _, e := runCLI(t, nil, "", "uhoh", "-h")
+	if !strings.HasPrefix(e, "Usage: honk uhoh [flags]") || !strings.Contains(e, "required for uhoh/phew") {
+		t.Errorf("uhoh -h: %q", e)
+	}
+	_, _, e = runCLI(t, nil, "", "loud", "-h")
+	if !strings.HasPrefix(e, "Usage: honk loud [TITLE] MESSAGE [flags]") || !strings.Contains(e, "| honk send --message -") {
+		t.Errorf("loud -h: %q", e)
+	}
+	if code, _, e := runCLI(t, nil, "", "shout"); code != exitUsage || !strings.HasPrefix(e, `honk: unknown command "shout"`) {
+		t.Errorf("unknown command: %d %q", code, e)
 	}
 }
 

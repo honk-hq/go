@@ -6,8 +6,34 @@
 Official Go client and CLI for [Honk](https://honk-me.app), the inbox that turns events from
 your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
 
+```go
+c, err := honk.FromEnv() // HONK_URL and HONK_KEY
+if err != nil {
+	log.Fatal(err)
+}
+c.Uhoh(ctx, "oven/kitchen", "The cake is burning", "Oven at 260 °C. The smoke alarm agrees.")
+// …a few tense minutes later
+c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know.")
+```
+
+Or from a shell, cron or CI:
+
+```sh
+pg_dump app > /backup/app.sql || honk uhoh --group-key backup/db-1 --title "Backup failed" --message "Exit code $?"
+honk beep "Someone bought 3 rubber chickens" "Order 1042, €2.97"
+```
+
+`Uhoh` opens an incident for its group key and your phone honks. If the oven keeps
+complaining, the same notification is updated instead of honking again. `Phew` closes the
+incident, and `Honk` sends any other message.
+
+Until 0.3.0 the methods were called `Send`, `Problem` and `Recovery`, the CLI `honk-me`, and
+its subcommands `problem` and `recovery`. All of them still work and send exactly the same
+requests; `honk-me` still installs from `cmd/honk-me` and ships next to `honk` in every release
+archive.
+
 - Package `honk`: context-aware, standard library only, safe for concurrent use.
-- CLI `honk-me` for shell scripts, cron and CI (replaces the cURL snippet).
+- CLI `honk` for shell scripts, cron and CI (replaces the cURL snippet).
 - Retries with backoff, `Retry-After`, a total deadline and an idempotency key on every send,
   so a retry never creates a duplicate.
 
@@ -17,8 +43,8 @@ in source code or client apps.
 ## Install
 
 ```sh
-go get github.com/honk-me/honk-go                          # library (Go 1.22+)
-go install github.com/honk-me/honk-go/cmd/honk-me@latest   # CLI
+go get github.com/honk-me/honk-go                       # library (Go 1.22+)
+go install github.com/honk-me/honk-go/cmd/honk@latest   # CLI
 ```
 
 The CLI is also attached as prebuilt binaries (Linux, macOS, Windows; amd64 and arm64) to
@@ -47,11 +73,11 @@ Every severity has a horn name. Use either; the SDK always sends the canonical v
 
 | Horn | Severity | Method | Constant | CLI |
 |---|---|---|---|---|
-| light honk | `light` (info) | `c.Light(ctx, title, message, opts...)` | `honk.Light` | `honk-me light …` |
-| beep-beep | `beep` (success) | `c.Beep(…)` | `honk.Beep` | `honk-me beep …` |
-| loud honk | `loud` (warning) | `c.Loud(…)` | `honk.Loud` | `honk-me loud …` |
-| long honk | `long` (error) | `c.Long(…)` | `honk.Long` | `honk-me long …` |
-| blast | `blast` (critical) | `c.Blast(…)` | `honk.Blast` | `honk-me blast …` |
+| light honk | `light` (info) | `c.Light(ctx, title, message, opts...)` | `honk.Light` | `honk light …` |
+| beep-beep | `beep` (success) | `c.Beep(…)` | `honk.Beep` | `honk beep …` |
+| loud honk | `loud` (warning) | `c.Loud(…)` | `honk.Loud` | `honk loud …` |
+| long honk | `long` (error) | `c.Long(…)` | `honk.Long` | `honk long …` |
+| blast | `blast` (critical) | `c.Blast(…)` | `honk.Blast` | `honk blast …` |
 
 The horn constants are aliases (`honk.Loud == honk.SeverityWarning`), and `Severity: "LOUD"`
 is normalized too, so alias and canonical spellings are the same event, also for idempotency.
@@ -71,7 +97,7 @@ func onCustomerRequest(r CustomerRequest) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, err := notifier.Send(ctx, honk.Message{
+		_, err := notifier.Honk(ctx, honk.Message{
 			Title:    truncate("New request: "+r.Subject, 150),
 			Message:  truncate(fmt.Sprintf("%s (%s) asked: %s", r.Name, r.Company, r.Body), 2000),
 			Priority: honk.PriorityHigh, // push right away
@@ -103,12 +129,12 @@ same key.
 Messages with the same `GroupKey` (per project, environment, source and channel) form one
 group: the first one pushes, repeats update it calmly instead of buzzing again. Use one key
 per customer request (`requests/<id>`), and a shared key only for repeats of the same problem
-(`queue/failed-jobs`). `Problem`/`Recovery` pairs need a `GroupKey`.
+(`queue/failed-jobs`). `Uhoh`/`Phew` pairs need a `GroupKey`.
 
 ## Sending
 
 ```go
-func (c *Client) Send(ctx context.Context, m honk.Message, opts ...honk.Option) (*honk.Accepted, error)
+func (c *Client) Honk(ctx context.Context, m honk.Message, opts ...honk.Option) (*honk.Accepted, error)
 // Accepted{ID, Duplicate, ReceivedAt}
 ```
 
@@ -141,8 +167,8 @@ Helpers take the core fields plus options (`WithIdempotencyKey`, `WithSeverity`,
 c.Loud(ctx, "Disk 91%", "/var on app-01", honk.WithGroupKey("disk/app-01/var"))
 c.Light(ctx, "Deploy started", "v4.2.0", honk.WithChannel("deploys"))
 c.Beep(...); c.Long(...); c.Blast(...)
-c.Problem(ctx, "db/backup", "Backup failed", "pg_dump exited with 1")      // a long honk by default
-c.Recovery(ctx, "db/backup", "Backup OK", "pg_dump finished in 41 s")      // a beep by default
+c.Uhoh(ctx, "db/backup", "Backup failed", "pg_dump exited with 1")   // event_type problem, a long honk by default
+c.Phew(ctx, "db/backup", "Backup OK", "pg_dump finished in 41 s")    // event_type recovery, a beep by default
 ```
 
 ### Buttons (actions)
@@ -151,7 +177,7 @@ Up to three buttons on the message, in display order: reply to the customer, cal
 the order.
 
 ```go
-_, err := c.Send(ctx, honk.Message{
+_, err := c.Honk(ctx, honk.Message{
 	Title:    "New request: online shop quote",
 	Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
 	Category: honk.CategoryCustomers,
@@ -191,7 +217,7 @@ honk.New(honk.Options{
 
 ## Retries and idempotency, guaranteed
 
-- Every send carries an `Idempotency-Key`: yours (`WithIdempotencyKey`), or a fresh UUIDv7
+- Every call carries an `Idempotency-Key`: yours (`WithIdempotencyKey`), or a fresh UUIDv7
   (`honk.NewIdempotencyKey()`). **The same key is reused on every retry.** Within 24 h Honk
   answers a replay with the original ID and `Duplicate: true`, so a lost response never creates
   a second message.
@@ -236,33 +262,33 @@ default:
 }
 ```
 
-## CLI: `honk-me`
+## CLI: `honk`
 
 For shell scripts, cron and CI. Reads `HONK_URL` and `HONK_KEY` (never pass the key as a
 flag), plus optional `HONK_SOURCE`, `HONK_ENVIRONMENT`, `HONK_CHANNEL` and
 `HONK_IDEMPOTENCY_KEY`.
 
 ```sh
-honk-me loud "Disk 91%"                                   # shortcut: light, beep, loud, long, blast
-honk-me beep "Backup finished" "nightly pg_dump took 42 s" # [TITLE] MESSAGE, flags anywhere
-honk-me send --title "Disk almost full" --message "/var at 91%" --severity loud \
+honk loud "Disk 91%"                                   # shortcut: light, beep, loud, long, blast
+honk beep "Backup finished" "nightly pg_dump took 42 s" # [TITLE] MESSAGE, flags anywhere
+honk send --title "Disk almost full" --message "/var at 91%" --severity loud \
   --group-key "disk/$(hostname)/var" --source "$(hostname)" --meta host="$(hostname)" --meta used:=91
-honk-me problem  --group-key db/backup --title "Backup failed" --message "pg_dump exited with 1"
-honk-me recovery --group-key db/backup --title "Backup OK"     --message "pg_dump finished"
-tail -c 8000 /var/log/backup.log | honk-me send --title "Backup log" --message -   # message from stdin
-honk-me send --message "Front door" --image-url https://cam.example.com/snap.jpg --priority high
-honk-me loud "Disk 91%" "/var on app-01" --action "Open Grafana=https://grafana.example.com/d/disk"
+honk uhoh --group-key db/backup --title "Backup failed" --message "pg_dump exited with 1"
+honk phew --group-key db/backup --title "Backup OK"     --message "pg_dump finished"
+tail -c 8000 /var/log/backup.log | honk send --title "Backup log" --message -   # message from stdin
+honk send --message "Front door" --image-url https://cam.example.com/snap.jpg --priority high
+honk loud "Disk 91%" "/var on app-01" --action "Open Grafana=https://grafana.example.com/d/disk"
 ```
 
 Cron, alerting only when the job fails:
 
 ```cron
-0 3 * * * pg_dump app > /backup/app.sql || honk-me problem --group-key db/backup --source "$(hostname)" --title "Backup failed" --message "pg_dump exited with $?"
+0 3 * * * pg_dump app > /backup/app.sql || honk uhoh --group-key db/backup --source "$(hostname)" --title "Backup failed" --message "pg_dump exited with $?"
 ```
 
-Send `recovery` only when something was actually broken (for example from a check that
+Send `phew` only when something was actually broken (for example from a check that
 remembers its last state): a recovery with no open problem still opens a "recovered" episode
-and notifies, so a recovery after every successful run would buzz every night.
+and notifies, so a `phew` after every successful run would buzz every night.
 
 CI (GitHub Actions), with one key per run attempt so the CLI's own retries never duplicate:
 
@@ -273,20 +299,20 @@ CI (GitHub Actions), with one key per run attempt so the CLI's own retries never
     HONK_URL: ${{ secrets.HONK_URL }}
     HONK_KEY: ${{ secrets.HONK_KEY }}
   run: |
-    honk-me problem --group-key "ci/${{ github.repository }}/${{ github.ref_name }}" \
+    honk uhoh --group-key "ci/${{ github.repository }}/${{ github.ref_name }}" \
       --title "CI failed: ${{ github.workflow }}" --message "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
       --source github-actions --category deployments \
       --idempotency-key "gh-${{ github.run_id }}-${{ github.run_attempt }}" || true
 ```
 
-Shortcuts `honk-me light|beep|loud|long|blast [TITLE] MESSAGE [flags]` fix the severity and
-take the text as arguments. `send`, `problem` and `recovery` take flags only:
+Shortcuts `honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]` fix the severity and
+take the text as arguments. `send`, `uhoh` and `phew` take flags only:
 `--title`, `--message` (`-` = stdin), `--severity` (horn or canonical name), `--priority`, `--category`,
 `--source`, `--environment`, `--channel`, `--group-key`, `--event-type` (send only),
 `--occurred-at` (RFC 3339 or `now`), `--url`, `--image-url`, `--action TITLE=URL` (repeatable,
 up to 3; split at the first `=`), `--meta k=v` / `--meta k:=3` (repeatable), `--ttl`,
 `--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`, `--retries`, `--json`,
-`--quiet`, `--dry-run`. `honk-me send -h` lists them all.
+`--quiet`, `--dry-run`. `honk send -h` lists them all.
 
 On success it prints the message ID (or JSON with `--json`). Exit codes:
 
@@ -310,7 +336,7 @@ go test -race ./...                                   # unit tests (httptest) + 
 HONK_URL=… HONK_KEY=… go test -run Integration ./...  # against a real server (use a test project's key)
 ```
 
-The version lives in `honk.Version` (also the User-Agent and `honk-me version`). Releases: push
+The version lives in `honk.Version` (also the User-Agent and `honk version`). Releases: push
 a tag `vX.Y.Z` matching it; the release workflow attaches the CLI binaries and the Go proxy
 serves the module (see `CHANGELOG.md`).
 

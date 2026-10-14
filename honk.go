@@ -16,7 +16,7 @@ import (
 )
 
 // Version of this SDK, sent in the User-Agent header.
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 const (
 	defaultTimeout     = 5 * time.Second
@@ -40,8 +40,8 @@ type Options struct {
 	// Retries after the first attempt (network errors, 429 and 5xx only). 0 means the
 	// default (4); use NoRetries to disable.
 	Retries int
-	// Deadline is the total time budget of one Send, waits included. Default 30s. A shorter
-	// context deadline wins.
+	// Deadline is the total time budget of one Honk call, waits included. Default 30s. A
+	// shorter context deadline wins.
 	Deadline time.Duration
 	// Defaults fill Source/Environment/Channel when a message leaves them empty.
 	Defaults Defaults
@@ -150,10 +150,12 @@ func OptionsFromEnv() Options {
 // FromEnv is New(OptionsFromEnv()).
 func FromEnv() (*Client, error) { return New(OptionsFromEnv()) }
 
-// Send posts one event and returns once Honk has durably stored it (202), which does not
-// mean a push was delivered. Network errors, 429 and 5xx are retried with the same
+// Honk sends one event and returns once the server has durably stored it (202), which does
+// not mean a push was delivered. Network errors, 429 and 5xx are retried with the same
 // Idempotency-Key until Retries or the deadline runs out. Errors are *Error.
-func (c *Client) Send(ctx context.Context, m Message, opts ...Option) (*Accepted, error) {
+//
+//	c.Honk(ctx, honk.Message{Title: "Someone bought 3 rubber chickens", Message: "Order 1042, €2.97", Severity: honk.Beep})
+func (c *Client) Honk(ctx context.Context, m Message, opts ...Option) (*Accepted, error) {
 	call := sendCall{msg: m}
 	for _, o := range opts {
 		o(&call)
@@ -336,20 +338,39 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 	return 0
 }
 
-// Problem reports a problem for groupKey (opens or continues its incident). Severity defaults
-// to Long (error); options may override it.
-func (c *Client) Problem(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
+// Send is the old name of Honk: same arguments, same request.
+func (c *Client) Send(ctx context.Context, m Message, opts ...Option) (*Accepted, error) {
+	return c.Honk(ctx, m, opts...)
+}
+
+// Uhoh reports that something broke: a problem for groupKey (opens or continues its
+// incident). Severity defaults to Long (error); WithSeverity overrides it.
+//
+//	c.Uhoh(ctx, "oven/kitchen", "The cake is burning", "Oven at 260 °C")
+func (c *Client) Uhoh(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
 	return c.helper(ctx, Message{Severity: SeverityError}, title, message, opts, func(m *Message) {
 		m.GroupKey, m.EventType = groupKey, EventTypeProblem
 	})
 }
 
-// Recovery reports that groupKey recovered (closes its open incident). Severity defaults to
-// Beep (success); options may override it.
-func (c *Client) Recovery(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
+// Phew reports that groupKey works again: a recovery (closes its open incident). Severity
+// defaults to Beep (success); WithSeverity overrides it.
+//
+//	c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know.")
+func (c *Client) Phew(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
 	return c.helper(ctx, Message{Severity: SeveritySuccess}, title, message, opts, func(m *Message) {
 		m.GroupKey, m.EventType = groupKey, EventTypeRecovery
 	})
+}
+
+// Problem is the old name of Uhoh: same arguments, same request.
+func (c *Client) Problem(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
+	return c.Uhoh(ctx, groupKey, title, message, opts...)
+}
+
+// Recovery is the old name of Phew: same arguments, same request.
+func (c *Client) Recovery(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
+	return c.Phew(ctx, groupKey, title, message, opts...)
 }
 
 // Light sends a light honk (severity info). An empty title lets the server derive one.
@@ -409,5 +430,5 @@ func (c *Client) withSeverity(ctx context.Context, s Severity, title, message st
 func (c *Client) helper(ctx context.Context, base Message, title, message string, opts []Option, force func(*Message)) (*Accepted, error) {
 	base.Title, base.Message = title, message
 	all := append(append([]Option{}, opts...), func(sc *sendCall) { force(&sc.msg) })
-	return c.Send(ctx, base, all...)
+	return c.Honk(ctx, base, all...)
 }

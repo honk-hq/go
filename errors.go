@@ -56,7 +56,7 @@ type FieldError struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Error is returned by Send and the helpers. Use errors.As to read the details, or
+// Error is returned by Honk and the helpers. Use errors.As to read the details, or
 // errors.Is with the Err* sentinels.
 type Error struct {
 	Kind Kind

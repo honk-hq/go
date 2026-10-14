@@ -1,8 +1,29 @@
 # Changelog
 
-All notable changes to the Go module and the `honk-me` CLI are documented here. The format
-follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
-[Semantic Versioning](https://semver.org/).
+All notable changes to the Go module and the `honk` CLI (`honk-me` until 0.3.0) are
+documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and the project uses [Semantic Versioning](https://semver.org/).
+
+## [0.3.0] - 2026-10-14
+
+### Added
+- New names for the three main calls, with the same arguments and results:
+  `c.Honk(ctx, m, opts...)` (was `Send`), `c.Uhoh(ctx, groupKey, title, message, opts...)`
+  (was `Problem`) and `c.Phew(ctx, groupKey, title, message, opts...)` (was `Recovery`).
+- The CLI is now called `honk`: `go install github.com/honk-me/honk-go/cmd/honk@latest`. Its
+  subcommands `uhoh` and `phew` are the new names of `problem` and `recovery` (same flags,
+  same request). Help, usage, error messages and `version` say `honk`, also when the CLI runs
+  as `honk-me`.
+
+### Changed
+- `Send`, `Problem` and `Recovery` are now aliases of `Honk`, `Uhoh` and `Phew`. They are not
+  deprecated and send byte-for-byte the same request, so existing code needs no change.
+- `honk-me` stays as an alias of the CLI, so existing scripts keep working: `cmd/honk-me` is
+  the same program (both commands are thin mains around `internal/cli`), and the `problem` and
+  `recovery` subcommands still work. Release archives are now `honk_<version>_<os>_<arch>` and
+  hold both binaries, `honk` and `honk-me`.
+- The CLI's User-Agent suffix is now `honk-cli` (was `honk-me-cli`).
+- README and godoc use the new names.
 
 ## [0.2.0] - 2026-10-07
 

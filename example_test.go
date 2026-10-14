@@ -16,16 +16,42 @@ func Example() {
 		log.Fatal(err)
 	}
 	ctx := context.Background()
-	if _, err := c.Problem(ctx, "db/backup", "Backup failed", "pg_dump exited with 1"); err != nil {
+	if _, err := c.Uhoh(ctx, "db/backup", "Backup failed", "pg_dump exited with 1"); err != nil {
 		log.Print(err)
 	}
 }
 
+// An oven sensor: Uhoh opens an incident for the group, Phew closes it.
+func ExampleClient_Uhoh() {
+	c, _ := honk.FromEnv()
+	ctx := context.Background()
+	if _, err := c.Uhoh(ctx, "oven/kitchen", "The cake is burning", "Oven at 260 °C. The smoke alarm agrees."); err != nil {
+		log.Print(err)
+	}
+	// …a few tense minutes later
+	if _, err := c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know."); err != nil {
+		log.Print(err)
+	}
+}
+
+func ExampleClient_Honk() {
+	c, _ := honk.FromEnv()
+	_, err := c.Honk(context.Background(), honk.Message{
+		Title:    "Someone bought 3 rubber chickens",
+		Message:  "Order 1042, €2.97",
+		Severity: honk.Beep,
+		Category: honk.CategorySales,
+	}, honk.WithIdempotencyKey("order-1042"))
+	if err != nil {
+		log.Printf("honk: %v", err)
+	}
+}
+
 // A customer request: one group per request, pushed right away, linked to the admin page.
-func ExampleClient_Send_customerRequest() {
+func ExampleClient_Honk_customerRequest() {
 	c, _ := honk.FromEnv()
 	go func() { // never block the request path on a notification
-		_, err := c.Send(context.Background(), honk.Message{
+		_, err := c.Honk(context.Background(), honk.Message{
 			Title:    "New request: online shop quote",
 			Message:  "Ana Pop (Acme) asked for a quote: 40 products, delivery in November.",
 			Priority: honk.PriorityHigh,
@@ -44,7 +70,7 @@ func ExampleClient_Send_customerRequest() {
 // Buttons on a customer request: reply by email or call back, straight from the notification.
 func ExampleAction() {
 	c, _ := honk.FromEnv()
-	_, err := c.Send(context.Background(), honk.Message{
+	_, err := c.Honk(context.Background(), honk.Message{
 		Title:    "New request: online shop quote",
 		Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
 		Category: honk.CategoryCustomers,

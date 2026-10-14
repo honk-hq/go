@@ -269,6 +269,110 @@ func TestHelpers(t *testing.T) {
 	}
 }
 
+func TestHonkUhohPhew(t *testing.T) {
+	m := newMock(t, okStep(false))
+	c := client(t, m.URL)
+	ctx := context.Background()
+	mustOK := func(_ *Accepted, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustOK(c.Honk(ctx, Message{Title: "Someone bought 3 rubber chickens", Message: "Order 1042", Severity: Beep}, WithIdempotencyKey("order-1042")))
+	mustOK(c.Uhoh(ctx, "oven/kitchen", "The cake is burning", "Oven at 260 °C", WithChannel("home"), WithIdempotencyKey("u-1")))
+	mustOK(c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know.", WithSourceSequence(2)))
+	mustOK(c.Uhoh(ctx, "oven/kitchen", "", "Smoke everywhere", WithSeverity(Blast)))
+	mustOK(c.Phew(ctx, "oven/kitchen", "Fine", "really", WithSeverity(Light)))
+	r := m.requests()
+	wants := []string{
+		`{"title":"Someone bought 3 rubber chickens","message":"Order 1042","severity":"success"}`,
+		`{"title":"The cake is burning","message":"Oven at 260 °C","severity":"error","channel":"home","group_key":"oven/kitchen","event_type":"problem"}`,
+		`{"title":"Cake saved","message":"Nobody needs to know.","severity":"success","group_key":"oven/kitchen","event_type":"recovery","source_sequence":2}`,
+		`{"message":"Smoke everywhere","severity":"critical","group_key":"oven/kitchen","event_type":"problem"}`,
+		`{"title":"Fine","message":"really","severity":"info","group_key":"oven/kitchen","event_type":"recovery"}`,
+	}
+	for i, w := range wants {
+		if string(r[i].body) != w {
+			t.Errorf("request %d\n got %s\nwant %s", i, r[i].body, w)
+		}
+	}
+	if r[0].header.Get("Idempotency-Key") != "order-1042" || r[1].header.Get("Idempotency-Key") != "u-1" {
+		t.Errorf("keys %q %q", r[0].header.Get("Idempotency-Key"), r[1].header.Get("Idempotency-Key"))
+	}
+}
+
+// The old names are plain aliases: same arguments, byte-for-byte the same request.
+func TestOldNamesSendTheSameRequests(t *testing.T) {
+	m := newMock(t, okStep(false))
+	c := client(t, m.URL, func(o *Options) { o.Defaults = Defaults{Source: "oven-pi"} })
+	ctx := context.Background()
+	type call func() (*Accepted, error)
+	type groupHelper func(context.Context, string, string, string, ...Option) (*Accepted, error)
+	twice := func(fresh, old groupHelper, group, title, message string, opts ...Option) [2]call {
+		return [2]call{
+			func() (*Accepted, error) { return fresh(ctx, group, title, message, opts...) },
+			func() (*Accepted, error) { return old(ctx, group, title, message, opts...) },
+		}
+	}
+	msg := Message{Title: "Temperature", Message: "180 °C", Severity: Loud, Metadata: map[string]any{"celsius": 180},
+		Actions: []Action{{Title: "Call", URL: "tel:+15550134"}}}
+	opts := []Option{WithChannel("home"), WithPriority(PriorityHigh), WithSourceSequence(7)}
+	pairs := []struct {
+		name  string
+		calls [2]call
+	}{
+		{"Honk/Send", [2]call{
+			func() (*Accepted, error) { return c.Honk(ctx, msg, WithIdempotencyKey("k-send")) },
+			func() (*Accepted, error) { return c.Send(ctx, msg, WithIdempotencyKey("k-send")) },
+		}},
+		{"Uhoh/Problem", twice(c.Uhoh, c.Problem, "oven/kitchen", "The cake is burning", "smoke", append(opts, WithIdempotencyKey("k-p"))...)},
+		{"Phew/Recovery", twice(c.Phew, c.Recovery, "oven/kitchen", "Cake saved", "Nobody needs to know.", append(opts, WithIdempotencyKey("k-r"))...)},
+		{"Uhoh/Problem severity", twice(c.Uhoh, c.Problem, "g", "", "m", WithSeverity("BLAST"), WithIdempotencyKey("k-o"))},
+	}
+	for _, p := range pairs {
+		a, errA := p.calls[0]()
+		b, errB := p.calls[1]()
+		if errA != nil || errB != nil {
+			t.Fatalf("%s: %v / %v", p.name, errA, errB)
+		}
+		if *a != *b {
+			t.Errorf("%s: results differ: %+v vs %+v", p.name, a, b)
+		}
+	}
+	r := m.requests()
+	if len(r) != 2*len(pairs) {
+		t.Fatalf("%d requests", len(r))
+	}
+	for i := 0; i < len(r); i += 2 {
+		a, b, name := r[i], r[i+1], pairs[i/2].name
+		if string(a.body) != string(b.body) || a.path != b.path {
+			t.Errorf("%s: bodies differ\n new %s\n old %s", name, a.body, b.body)
+		}
+		if len(a.header) != len(b.header) {
+			t.Errorf("%s: headers differ: %v vs %v", name, a.header, b.header)
+		}
+		for k := range a.header {
+			if a.header.Get(k) != b.header.Get(k) {
+				t.Errorf("%s: header %s differs: %q vs %q", name, k, a.header.Get(k), b.header.Get(k))
+			}
+		}
+	}
+	if !strings.Contains(string(r[2].body), `"event_type":"problem"`) || !strings.Contains(string(r[4].body), `"event_type":"recovery"`) {
+		t.Errorf("event types: %s / %s", r[2].body, r[4].body)
+	}
+	// Errors match too: a recovery without a group key is refused locally under both names.
+	for _, phew := range []groupHelper{c.Phew, c.Recovery} {
+		_, err := phew(ctx, "", "t", "m")
+		if he := asError(t, err); he.Kind != KindValidation || !he.Local || he.Fields[0].Field != "group_key" {
+			t.Errorf("recovery without group key: %+v", he)
+		}
+	}
+	if len(m.requests()) != 2*len(pairs) {
+		t.Errorf("an invalid recovery was sent")
+	}
+}
+
 func TestRetriesReuseIdempotencyKeyAndBody(t *testing.T) {
 	m := newMock(t, errStep(503, "unavailable", "0", ""), errStep(500, "internal", "", ""), step{drop: true}, okStep(false))
 	acc, err := client(t, m.URL).Send(context.Background(), Message{Message: "x"})

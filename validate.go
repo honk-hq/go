@@ -305,7 +305,7 @@ func validIdempotencyKey(k string) bool {
 	return true
 }
 
-// EncodeMessage validates m (with defaults applied) and returns the exact JSON body Send would
+// EncodeMessage validates m (with defaults applied) and returns the exact JSON body Honk would
 // post. Useful for logging, dry runs and tests.
 func EncodeMessage(m Message, defaults Defaults) ([]byte, error) {
 	return encodeBody(m, defaults, false)

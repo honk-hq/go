@@ -37,7 +37,7 @@ var run = fmt.Sprintf("go-%d", time.Now().UnixNano())
 
 func TestIntegrationMinimal(t *testing.T) {
 	c := integrationClient(t)
-	acc, err := c.Send(context.Background(), honk.Message{Message: "minimal " + run})
+	acc, err := c.Honk(context.Background(), honk.Message{Message: "minimal " + run})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,11 +58,11 @@ func TestIntegrationAllFieldsAndDuplicate(t *testing.T) {
 		TTLSeconds: 600, SourceSequence: honk.Ptr[int64](1),
 	}
 	key := "it-" + honk.NewIdempotencyKey()
-	first, err := c.Send(context.Background(), m, honk.WithIdempotencyKey(key))
+	first, err := c.Honk(context.Background(), m, honk.WithIdempotencyKey(key))
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := c.Send(context.Background(), m, honk.WithIdempotencyKey(key))
+	again, err := c.Send(context.Background(), m, honk.WithIdempotencyKey(key)) // the old name: the very same request
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,20 +107,29 @@ func TestIntegrationConflict(t *testing.T) {
 	}
 }
 
-func TestIntegrationProblemRecovery(t *testing.T) {
+func TestIntegrationUhohPhew(t *testing.T) {
 	c := integrationClient(t)
 	group := "it/go/" + run
 	ctx := context.Background()
-	p, err := c.Problem(ctx, group, "Backup failed", "pg_dump exited with 1", honk.WithSourceSequence(1))
+	p, err := c.Uhoh(ctx, group, "Backup failed", "pg_dump exited with 1", honk.WithSourceSequence(1), honk.WithIdempotencyKey(group+"/p"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := c.Recovery(ctx, group, "Backup OK", "pg_dump finished", honk.WithSourceSequence(2))
+	r, err := c.Phew(ctx, group, "Backup OK", "pg_dump finished", honk.WithSourceSequence(2), honk.WithIdempotencyKey(group+"/r"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.ID == r.ID {
 		t.Fatal("same id")
+	}
+	// The old names send the very same requests: the server sees replays, not conflicts.
+	p2, err := c.Problem(ctx, group, "Backup failed", "pg_dump exited with 1", honk.WithSourceSequence(1), honk.WithIdempotencyKey(group+"/p"))
+	if err != nil || !p2.Duplicate || p2.ID != p.ID {
+		t.Fatalf("Problem replay %+v err %v", p2, err)
+	}
+	r2, err := c.Recovery(ctx, group, "Backup OK", "pg_dump finished", honk.WithSourceSequence(2), honk.WithIdempotencyKey(group+"/r"))
+	if err != nil || !r2.Duplicate || r2.ID != r.ID {
+		t.Fatalf("Recovery replay %+v err %v", r2, err)
 	}
 }
 
