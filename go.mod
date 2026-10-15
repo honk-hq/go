@@ -1,3 +1,3 @@
-module github.com/honk-me/honk-go
+module github.com/honkhonk/go
 
 go 1.22

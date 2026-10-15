@@ -16,7 +16,7 @@ import (
 )
 
 // Version of this SDK, sent in the User-Agent header.
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 const (
 	defaultTimeout     = 5 * time.Second
@@ -98,7 +98,7 @@ func New(o Options) (*Client, error) {
 	c := &Client{
 		url: u, key: key, timeout: o.Timeout, retries: o.Retries, deadline: o.Deadline,
 		defaults: o.Defaults, skipCheck: o.SkipValidation, backoff: o.Backoff,
-		userAgent: "honk-me-go/" + Version,
+		userAgent: "honk-go/" + Version,
 	}
 	if o.UserAgent != "" {
 		c.userAgent += " " + o.UserAgent

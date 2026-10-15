@@ -1,6 +1,5 @@
 // Package cli is the honk command line tool: it sends one event to Honk from a shell script,
-// cron job or CI step. cmd/honk and cmd/honk-me (its old name, kept so existing scripts keep
-// working) are both thin mains around Main, so the two binaries behave identically.
+// cron job or CI step. cmd/honk is a thin main around Main.
 //
 //	honk loud "Disk 91%"                                   # shortcut per horn: light beep loud long blast
 //	honk send --title "Backup finished" --message "42 s" --severity beep
@@ -26,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	honk "github.com/honk-me/honk-go"
+	honk "github.com/honkhonk/go"
 )
 
 // prog is how the tool calls itself in help, errors and `honk version`, whichever binary runs.
@@ -80,7 +79,7 @@ also take --group-key KEY [--title TEXT] --message TEXT instead of the arguments
 
 The Honk scale (--severity): light (info), beep (success), loud (warning), long (error),
 blast (critical). Canonical names work too. "problem" and "recovery" are the old names of
-uhoh and phew, and "honk-me" the old name of honk; they all still work.
+uhoh and phew; they still work.
 
 Environment:
   HONK_URL               base URL of your Honk server (required)

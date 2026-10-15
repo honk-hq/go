@@ -1,7 +1,7 @@
 # honk-go
 
-[![CI](https://github.com/honk-me/honk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-me/honk-go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/honk-me/honk-go.svg)](https://pkg.go.dev/github.com/honk-me/honk-go)
+[![CI](https://github.com/honkhonk/go/actions/workflows/ci.yml/badge.svg)](https://github.com/honkhonk/go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/honkhonk/go.svg)](https://pkg.go.dev/github.com/honkhonk/go)
 
 Official Go client and CLI for [Honk](https://honk-honk.app), the inbox that turns events from
 your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
@@ -27,10 +27,8 @@ honk beep "Someone bought 3 rubber chickens" "Order 1042, €2.97"
 complaining, the same notification is updated instead of honking again. `Phew` closes the
 incident, and `Honk` sends any other message.
 
-Until 0.3.0 the methods were called `Send`, `Problem` and `Recovery`, the CLI `honk-me`, and
-its subcommands `problem` and `recovery`. All of them still work and send exactly the same
-requests; `honk-me` still installs from `cmd/honk-me` and ships next to `honk` in every release
-archive.
+Until 0.3.0 the methods were called `Send`, `Problem` and `Recovery`, and the CLI's subcommands
+`problem` and `recovery`. All of them still work and send exactly the same requests.
 
 - Package `honk`: context-aware, standard library only, safe for concurrent use.
 - CLI `honk` for shell scripts, cron and CI (replaces the cURL snippet).
@@ -43,12 +41,12 @@ in source code or client apps.
 ## Install
 
 ```sh
-go get github.com/honk-me/honk-go                       # library (Go 1.22+)
-go install github.com/honk-me/honk-go/cmd/honk@latest   # CLI
+go get github.com/honkhonk/go                       # library (Go 1.22+)
+go install github.com/honkhonk/go/cmd/honk@latest   # CLI
 ```
 
 The CLI is also attached as prebuilt binaries (Linux, macOS, Windows; amd64 and arm64) to
-every [GitHub release](https://github.com/honk-me/honk-go/releases).
+every [GitHub release](https://github.com/honkhonk/go/releases).
 
 Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app). Its
 *Integrations* page generates ready-to-paste code for the library and the CLI.
@@ -56,7 +54,7 @@ Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app).
 ## Quick start
 
 ```go
-import honk "github.com/honk-me/honk-go" // package honk
+import honk "github.com/honkhonk/go" // package honk
 
 c, err := honk.FromEnv() // HONK_URL, HONK_KEY (+ optional HONK_SOURCE, HONK_ENVIRONMENT, HONK_CHANNEL)
 if err != nil {
@@ -347,8 +345,8 @@ serves the module (see `CHANGELOG.md`).
 ## Links
 
 - [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
-- Other SDKs: [Node.js](https://github.com/honk-me/honk-node),
-  [PHP / Laravel](https://github.com/honk-me/honk-php), [Swift](https://github.com/honk-me/honk-swift),
-  [Kotlin / Java](https://github.com/honk-me/honk-kotlin).
+- Other SDKs: [Node.js](https://github.com/honkhonk/node),
+  [PHP / Laravel](https://github.com/honkhonk/php), [Swift](https://github.com/honkhonk/swift),
+  [Kotlin / Java](https://github.com/honkhonk/kotlin).
 
 MIT License.

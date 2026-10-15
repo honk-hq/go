@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"time"
 
-	honk "github.com/honk-me/honk-go"
+	honk "github.com/honkhonk/go"
 )
 
 func Example() {

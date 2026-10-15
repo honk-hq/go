@@ -1,7 +1,7 @@
 # Runs when a tag vX.Y.Z is pushed (the monorepo's sdk-mirror workflow pushes it for a monorepo
 # tag sdk-go-vX.Y.Z). The tag alone publishes the module: the Go proxy and pkg.go.dev serve any
 # tagged version of a public repository. This checks the tag against honk.Version, runs the
-# tests, attaches the honk CLI binaries (with honk-me, its old name) to the GitHub release
+# tests, attaches the honk CLI binaries to the GitHub release
 # (GoReleaser, GITHUB_TOKEN only) and asks the proxy for the new version so pkg.go.dev lists it
 # right away.
 name: release

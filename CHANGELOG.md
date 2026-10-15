@@ -1,8 +1,12 @@
 # Changelog
 
-All notable changes to the Go module and the `honk` CLI (`honk-me` until 0.3.0) are
-documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+All notable changes to the Go module and the `honk` CLI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
+
+## [0.4.0] - 2026-10-15
+
+### Changed
+- The module is now `github.com/honkhonk/go` (the package is still `honk`).
 
 ## [0.3.0] - 2026-10-14
 

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	honk "github.com/honk-me/honk-go"
+	honk "github.com/honkhonk/go"
 )
 
 const testKey = "honk_ab12cd34ef56_0123456789abcdefghijABCDEFGHIJ0123"
@@ -313,11 +313,6 @@ func TestHelpShowsHonk(t *testing.T) {
 		"--group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both)", "\n  honk send", `Run "honk send -h"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q:\n%s", want, out)
-		}
-	}
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "honk-me") {
-			t.Errorf("help still shows honk-me: %q", line)
 		}
 	}
 	_, _, e := runCLI(t, nil, "", "uhoh", "-h")
