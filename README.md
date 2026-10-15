@@ -346,7 +346,7 @@ serves the module (see `CHANGELOG.md`).
 
 - [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
 - Other SDKs: [Node.js](https://github.com/honkhonk/node),
-  [PHP / Laravel](https://github.com/honkhonk/php), [Swift](https://github.com/honkhonk/swift),
+  [PHP / Laravel](https://github.com/honkhonk/php), [Swift](https://github.com/honkhonk/honk-swift),
   [Kotlin / Java](https://github.com/honkhonk/kotlin).
 
 MIT License.
