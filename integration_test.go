@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	honk "github.com/honkhonk/go"
+	honk "github.com/honk-hq/go"
 )
 
 func integrationClient(t *testing.T, mod ...func(*honk.Options)) *honk.Client {

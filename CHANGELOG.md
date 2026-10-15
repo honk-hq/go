@@ -6,7 +6,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 ## [0.4.0] - 2026-10-15
 
 ### Changed
-- The module is now `github.com/honkhonk/go` (the package is still `honk`).
+- The module is now `github.com/honk-hq/go` (the package is still `honk`).
 
 ## [0.3.0] - 2026-10-14
 

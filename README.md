@@ -1,7 +1,7 @@
 # honk-go
 
-[![CI](https://github.com/honkhonk/go/actions/workflows/ci.yml/badge.svg)](https://github.com/honkhonk/go/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/honkhonk/go.svg)](https://pkg.go.dev/github.com/honkhonk/go)
+[![CI](https://github.com/honk-hq/go/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-hq/go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/honk-hq/go.svg)](https://pkg.go.dev/github.com/honk-hq/go)
 
 Official Go client and CLI for [Honk](https://honk-honk.app), the inbox that turns events from
 your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
@@ -41,12 +41,12 @@ in source code or client apps.
 ## Install
 
 ```sh
-go get github.com/honkhonk/go                       # library (Go 1.22+)
-go install github.com/honkhonk/go/cmd/honk@latest   # CLI
+go get github.com/honk-hq/go                       # library (Go 1.22+)
+go install github.com/honk-hq/go/cmd/honk@latest   # CLI
 ```
 
 The CLI is also attached as prebuilt binaries (Linux, macOS, Windows; amd64 and arm64) to
-every [GitHub release](https://github.com/honkhonk/go/releases).
+every [GitHub release](https://github.com/honk-hq/go/releases).
 
 Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app). Its
 *Integrations* page generates ready-to-paste code for the library and the CLI.
@@ -54,7 +54,7 @@ Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app).
 ## Quick start
 
 ```go
-import honk "github.com/honkhonk/go" // package honk
+import honk "github.com/honk-hq/go" // package honk
 
 c, err := honk.FromEnv() // HONK_URL, HONK_KEY (+ optional HONK_SOURCE, HONK_ENVIRONMENT, HONK_CHANNEL)
 if err != nil {
@@ -345,8 +345,8 @@ serves the module (see `CHANGELOG.md`).
 ## Links
 
 - [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
-- Other SDKs: [Node.js](https://github.com/honkhonk/node),
-  [PHP / Laravel](https://github.com/honkhonk/php), [Swift](https://github.com/honkhonk/honk-swift),
-  [Kotlin / Java](https://github.com/honkhonk/kotlin).
+- Other SDKs: [Node.js](https://github.com/honk-hq/node),
+  [PHP / Laravel](https://github.com/honk-hq/php), [Swift](https://github.com/honk-hq/honk-swift),
+  [Kotlin / Java](https://github.com/honk-hq/kotlin).
 
 MIT License.

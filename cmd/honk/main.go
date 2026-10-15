@@ -7,9 +7,9 @@
 //
 // HONK_URL and HONK_KEY come from the environment. Run `honk help` for flags and exit codes.
 //
-//	go install github.com/honkhonk/go/cmd/honk@latest
+//	go install github.com/honk-hq/go/cmd/honk@latest
 package main
 
-import "github.com/honkhonk/go/internal/cli"
+import "github.com/honk-hq/go/internal/cli"
 
 func main() { cli.Main() }

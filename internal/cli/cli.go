@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	honk "github.com/honkhonk/go"
+	honk "github.com/honk-hq/go"
 )
 
 // prog is how the tool calls itself in help, errors and `honk version`, whichever binary runs.

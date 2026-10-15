@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	honk "github.com/honkhonk/go"
+	honk "github.com/honk-hq/go"
 )
 
 const testKey = "honk_ab12cd34ef56_0123456789abcdefghijABCDEFGHIJ0123"
