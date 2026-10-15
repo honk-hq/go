@@ -3,7 +3,7 @@
 [![CI](https://github.com/honk-me/honk-go/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-me/honk-go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/honk-me/honk-go.svg)](https://pkg.go.dev/github.com/honk-me/honk-go)
 
-Official Go client and CLI for [Honk](https://honk-me.app), the inbox that turns events from
+Official Go client and CLI for [Honk](https://honk-honk.app), the inbox that turns events from
 your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
 
 ```go
@@ -50,7 +50,7 @@ go install github.com/honk-me/honk-go/cmd/honk@latest   # CLI
 The CLI is also attached as prebuilt binaries (Linux, macOS, Windows; amd64 and arm64) to
 every [GitHub release](https://github.com/honk-me/honk-go/releases).
 
-Create a project and an ingestion key at [honk-me.app](https://honk-me.app). Its
+Create a project and an ingestion key at [honk-honk.app](https://honk-honk.app). Its
 *Integrations* page generates ready-to-paste code for the library and the CLI.
 
 ## Quick start
@@ -346,7 +346,7 @@ serves the module (see `CHANGELOG.md`).
 
 ## Links
 
-- [honk-me.app](https://honk-me.app): the Honk inbox (web, iPhone).
+- [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
 - Other SDKs: [Node.js](https://github.com/honk-me/honk-node),
   [PHP / Laravel](https://github.com/honk-me/honk-php), [Swift](https://github.com/honk-me/honk-swift),
   [Kotlin / Java](https://github.com/honk-me/honk-kotlin).
