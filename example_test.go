@@ -53,7 +53,7 @@ func ExampleClient_Honk_customerRequest() {
 	go func() { // never block the request path on a notification
 		_, err := c.Honk(context.Background(), honk.Message{
 			Title:    "New request: online shop quote",
-			Message:  "Ana Pop (Acme) asked for a quote: 40 products, delivery in November.",
+			Message:  "Maria Tudor (Acme) asked for a quote: 40 products, delivery in November.",
 			Priority: honk.PriorityHigh,
 			Category: honk.CategoryCustomers,
 			Channel:  "requests",
@@ -72,12 +72,12 @@ func ExampleAction() {
 	c, _ := honk.FromEnv()
 	_, err := c.Honk(context.Background(), honk.Message{
 		Title:    "New request: online shop quote",
-		Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
+		Message:  "Maria Tudor (Acme) asked for a quote: online shop, 40 products",
 		Category: honk.CategoryCustomers,
 		GroupKey: "requests/4812",
 		Actions: []honk.Action{
-			{Title: "Reply", URL: "mailto:emily@example.com?subject=" + url.PathEscape("Your quote")},
-			{Title: "Call Emily", URL: "tel:+15550134"},
+			{Title: "Reply", URL: "mailto:maria@example.com?subject=" + url.PathEscape("Your quote")},
+			{Title: "Call Maria", URL: "tel:+15550134"},
 		},
 	}, honk.WithIdempotencyKey("request-4812"))
 	if err != nil {

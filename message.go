@@ -136,7 +136,7 @@ type Message struct {
 // Action is a button on a message. Honk never opens or fetches the URL; the app opens it when
 // the user taps the button.
 type Action struct {
-	// Title is 1–40 characters (trimmed), one line, shown as sent: "Reply", "Call Emily".
+	// Title is 1–40 characters (trimmed), one line, shown as sent: "Reply", "Call Maria".
 	Title string `json:"title"`
 	// URL is https:// (no credentials), mailto: with one address (?subject=…&body=…
 	// percent-encoded, no other keys), tel: or sms: with a number (sms: also ?body=…), at most

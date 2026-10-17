@@ -177,12 +177,12 @@ the order.
 ```go
 _, err := c.Honk(ctx, honk.Message{
 	Title:    "New request: online shop quote",
-	Message:  "Emily Carter (Acme) asked for a quote: online shop, 40 products",
+	Message:  "Maria Tudor (Acme) asked for a quote: online shop, 40 products",
 	Category: honk.CategoryCustomers,
 	GroupKey: "requests/4812",
 	Actions: []honk.Action{
-		{Title: "Reply", URL: "mailto:emily@example.com?subject=" + url.PathEscape("Your quote")},
-		{Title: "Call Emily", URL: "tel:+15550134"},
+		{Title: "Reply", URL: "mailto:maria@example.com?subject=" + url.PathEscape("Your quote")},
+		{Title: "Call Maria", URL: "tel:+15550134"},
 	},
 })
 ```
@@ -196,7 +196,7 @@ _, err := c.Honk(ctx, honk.Message{
   message in the app and the web inbox, and on iPhone notifications that show the message
   text. Errors name the button: `actions[1].url`.
 - Helpers take `honk.WithActions(honk.Action{…}, …)`; the CLI takes
-  `--action "Call Emily=tel:+15550134"`.
+  `--action "Call Maria=tel:+15550134"`.
 
 ### Options
 

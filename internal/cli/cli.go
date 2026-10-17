@@ -155,7 +155,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.StringVar(&occurredAt, "occurred-at", "", `when it happened: RFC 3339 timestamp or "now"`)
 	fs.StringVar(&m.URL, "url", "", "https link shown as \"Open link\"")
 	fs.StringVar(&m.ImageURL, "image-url", "", "https image the server fetches and attaches")
-	fs.Var(&actions, "action", "button `TITLE=URL`, e.g. \"Call Emily=tel:+15550134\" (https://, mailto:, tel:, sms:); repeatable, up to 3")
+	fs.Var(&actions, "action", "button `TITLE=URL`, e.g. \"Call Maria=tel:+15550134\" (https://, mailto:, tel:, sms:); repeatable, up to 3")
 	fs.Var(meta, "meta", "metadata key=value (string) or key:=value (JSON number/boolean); repeatable")
 	fs.IntVar(&m.TTLSeconds, "ttl", 0, "push lifetime in seconds, 60–86400 (default 3600)")
 	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter that orders uhoh/phew of one group (needs a group key)")
@@ -354,7 +354,7 @@ func (a *actionFlag) String() string {
 func (a *actionFlag) Set(s string) error {
 	title, url, ok := strings.Cut(s, "=")
 	if !ok {
-		return fmt.Errorf("%q: use TITLE=URL, e.g. \"Call Emily=tel:+15550134\"", s)
+		return fmt.Errorf("%q: use TITLE=URL, e.g. \"Call Maria=tel:+15550134\"", s)
 	}
 	*a = append(*a, honk.Action{Title: title, URL: url})
 	return nil
