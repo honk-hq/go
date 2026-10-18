@@ -16,7 +16,7 @@ import (
 )
 
 // Version of this SDK, sent in the User-Agent header.
-const Version = "0.4.0"
+const Version = "0.4.1"
 
 const (
 	defaultTimeout     = 5 * time.Second

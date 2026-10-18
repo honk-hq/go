@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-18
+
 ### Changed
 - The README and the `honk` CLI's help call the product Honk! Honk!; the module, the package
   and the command are unchanged.
