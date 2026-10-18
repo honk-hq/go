@@ -3,6 +3,12 @@
 All notable changes to the Go module and the `honk` CLI are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- The README and the `honk` CLI's help call the product Honk! Honk!; the module, the package
+  and the command are unchanged.
+
 ## [0.4.0] - 2026-10-15
 
 ### Changed

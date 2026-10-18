@@ -308,7 +308,7 @@ func TestHelpShowsHonk(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("help: %d", code)
 	}
-	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk", "\n  honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]",
+	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk! Honk!\n", "\n  honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]",
 		"\n  honk phew GROUP_KEY [TITLE] MESSAGE [flags]", "two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE",
 		"--group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both)", "\n  honk send", `Run "honk send -h"`} {
 		if !strings.Contains(out, want) {

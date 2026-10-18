@@ -65,7 +65,7 @@ func Main() {
 }
 
 func usage() string {
-	return `honk ` + honk.Version + ` — send an event to Honk
+	return `honk ` + honk.Version + ` — send an event to Honk! Honk!
 
 Usage:
   honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]   shortcut with that severity
@@ -82,7 +82,7 @@ blast (critical). Canonical names work too. "problem" and "recovery" are the old
 uhoh and phew; they still work.
 
 Environment:
-  HONK_URL               base URL of your Honk server (required)
+  HONK_URL               base URL of your Honk! Honk! server (required)
   HONK_KEY               project ingestion key honk_… (required; never pass it as a flag)
   HONK_SOURCE, HONK_ENVIRONMENT, HONK_CHANNEL   defaults for --source, --environment, --channel
   HONK_IDEMPOTENCY_KEY   default for --idempotency-key

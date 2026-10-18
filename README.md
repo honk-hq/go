@@ -3,7 +3,7 @@
 [![CI](https://github.com/honk-hq/go/actions/workflows/ci.yml/badge.svg)](https://github.com/honk-hq/go/actions/workflows/ci.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/honk-hq/go.svg)](https://pkg.go.dev/github.com/honk-hq/go)
 
-Official Go client and CLI for [Honk](https://honk-honk.app), the inbox that turns events from
+Official Go client and CLI for [Honk! Honk!](https://honk-honk.app), the inbox that turns events from
 your apps, scripts, cron jobs and CI into calm, grouped push notifications on your phone.
 
 ```go
@@ -153,7 +153,7 @@ func (c *Client) Honk(ctx context.Context, m honk.Message, opts ...honk.Option) 
 | `TTLSeconds` | push lifetime 60–86400 (0 = default 3600) |
 | `SourceSequence` | `*int64` (`honk.Ptr[int64](n)`), 0 … 2^53-1, needs `GroupKey` |
 
-Zero values are omitted. A nil error means Honk **durably stored** the message (`202`), not
+Zero values are omitted. A nil error means Honk! Honk! **durably stored** the message (`202`), not
 that a push was delivered or read. `honk.EncodeMessage(m, defaults)` returns the exact JSON.
 
 Helpers take the core fields plus options (`WithIdempotencyKey`, `WithSeverity`,
@@ -192,7 +192,7 @@ _, err := c.Honk(ctx, honk.Message{
   address and optionally `?subject=…&body=…` (percent-encoded with `url.PathEscape`, no other
   keys); `tel:` with a number (digits, `-` `.` `(` `)`, `+` only first); `sms:` with a number
   and optionally `?body=…`. Other schemes are refused.
-- Honk never opens or fetches them; the app does when you tap one. They appear on the
+- Honk! Honk! never opens or fetches them; the app does when you tap one. They appear on the
   message in the app and the web inbox, and on iPhone notifications that show the message
   text. Errors name the button: `actions[1].url`.
 - Helpers take `honk.WithActions(honk.Action{…}, …)`; the CLI takes
@@ -216,7 +216,7 @@ honk.New(honk.Options{
 ## Retries and idempotency, guaranteed
 
 - Every call carries an `Idempotency-Key`: yours (`WithIdempotencyKey`), or a fresh UUIDv7
-  (`honk.NewIdempotencyKey()`). **The same key is reused on every retry.** Within 24 h Honk
+  (`honk.NewIdempotencyKey()`). **The same key is reused on every retry.** Within 24 h Honk! Honk!
   answers a replay with the original ID and `Duplicate: true`, so a lost response never creates
   a second message.
 - Only network errors, timeouts, `429` and `5xx` are retried, with exponential backoff and
@@ -344,7 +344,7 @@ serves the module (see `CHANGELOG.md`).
 
 ## Links
 
-- [honk-honk.app](https://honk-honk.app): the Honk inbox (web, iPhone).
+- [honk-honk.app](https://honk-honk.app): the Honk! Honk! inbox (web, iPhone).
 - Other SDKs: [Node.js](https://github.com/honk-hq/node),
   [PHP / Laravel](https://github.com/honk-hq/php), [Swift](https://github.com/honk-hq/honk-swift),
   [Kotlin / Java](https://github.com/honk-hq/kotlin).
