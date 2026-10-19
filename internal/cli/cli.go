@@ -28,7 +28,7 @@ import (
 	honk "github.com/honk-hq/go"
 )
 
-// prog is how the tool calls itself in help, errors and `honk version`, whichever binary runs.
+// prog is how the tool calls itself in help, errors and `honk version`.
 const prog = "honk"
 
 // Exit codes (documented in README.md and `honk help`).
