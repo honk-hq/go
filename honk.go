@@ -373,27 +373,27 @@ func (c *Client) Recovery(ctx context.Context, groupKey, title, message string, 
 	return c.Phew(ctx, groupKey, title, message, opts...)
 }
 
-// Light sends a light honk (severity info). An empty title lets the server derive one.
+// Light sends a Light message (severity info). An empty title lets the server derive one.
 func (c *Client) Light(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityInfo, title, message, opts)
 }
 
-// Beep sends a beep-beep (severity success).
+// Beep sends a Beep message (severity success).
 func (c *Client) Beep(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeveritySuccess, title, message, opts)
 }
 
-// Loud sends a loud honk (severity warning).
+// Loud sends a Loud message (severity warning).
 func (c *Client) Loud(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityWarning, title, message, opts)
 }
 
-// Long sends a long honk (severity error; pushes at least as high priority).
+// Long sends a Long message (severity error; pushes at least as high priority).
 func (c *Client) Long(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityError, title, message, opts)
 }
 
-// Blast sends a blast (severity critical; pushes at least as high priority).
+// Blast sends a Blast message (severity critical; pushes at least as high priority).
 func (c *Client) Blast(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityCritical, title, message, opts)
 }

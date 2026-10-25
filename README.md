@@ -67,15 +67,18 @@ Or explicitly: `honk.New(honk.Options{URL: "https://honk.example.com", Key: key}
 
 ## The Honk scale
 
-Every severity has a horn name. Use either; the SDK always sends the canonical value.
+Five levels. The Honk app shows them by their standard names (Info, Success, Warning, Error,
+Critical); people who prefer horn sounds can switch on the Honk names (Light, Beep, Loud, Long,
+Blast) with the "Honk names for levels" switch in Settings. The SDK takes both: the canonical values and the
+Honk names as input aliases, in any case, and always sends the canonical value.
 
-| Horn | Severity | Method | Constant | CLI |
-|---|---|---|---|---|
-| light honk | `light` (info) | `c.Light(ctx, title, message, opts...)` | `honk.Light` | `honk light …` |
-| beep-beep | `beep` (success) | `c.Beep(…)` | `honk.Beep` | `honk beep …` |
-| loud honk | `loud` (warning) | `c.Loud(…)` | `honk.Loud` | `honk loud …` |
-| long honk | `long` (error) | `c.Long(…)` | `honk.Long` | `honk long …` |
-| blast | `blast` (critical) | `c.Blast(…)` | `honk.Blast` | `honk blast …` |
+| Level | Honk name | Severity | Method | Constant | CLI |
+|---|---|---|---|---|---|
+| Info | Light | `light` (info) | `c.Light(ctx, title, message, opts...)` | `honk.Light` | `honk light …` |
+| Success | Beep | `beep` (success) | `c.Beep(…)` | `honk.Beep` | `honk beep …` |
+| Warning | Loud | `loud` (warning) | `c.Loud(…)` | `honk.Loud` | `honk loud …` |
+| Error | Long | `long` (error) | `c.Long(…)` | `honk.Long` | `honk long …` |
+| Critical | Blast | `blast` (critical) | `c.Blast(…)` | `honk.Blast` | `honk blast …` |
 
 The horn constants are aliases (`honk.Loud == honk.SeverityWarning`), and `Severity: "LOUD"`
 is normalized too, so alias and canonical spellings are the same event, also for idempotency.
@@ -165,8 +168,8 @@ Helpers take the core fields plus options (`WithIdempotencyKey`, `WithSeverity`,
 c.Loud(ctx, "Disk 91%", "/var on app-01", honk.WithGroupKey("disk/app-01/var"))
 c.Light(ctx, "Deploy started", "v4.2.0", honk.WithChannel("deploys"))
 c.Beep(...); c.Long(...); c.Blast(...)
-c.Uhoh(ctx, "db/backup", "Backup failed", "pg_dump exited with 1")   // event_type problem, a long honk by default
-c.Phew(ctx, "db/backup", "Backup OK", "pg_dump finished in 41 s")    // event_type recovery, a beep by default
+c.Uhoh(ctx, "db/backup", "Backup failed", "pg_dump exited with 1")   // event_type problem, a Long message by default
+c.Phew(ctx, "db/backup", "Backup OK", "pg_dump finished in 41 s")    // event_type recovery, a Beep message by default
 ```
 
 ### Buttons (actions)

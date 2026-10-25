@@ -12,11 +12,11 @@ type Severity string
 
 // The Honk scale: horn names, aliases of the canonical severities (honk.Loud == honk.SeverityWarning).
 const (
-	Light Severity = SeverityInfo     // light honk
-	Beep  Severity = SeveritySuccess  // beep-beep
-	Loud  Severity = SeverityWarning  // loud honk
-	Long  Severity = SeverityError    // long honk
-	Blast Severity = SeverityCritical // blast
+	Light Severity = SeverityInfo     // Light
+	Beep  Severity = SeveritySuccess  // Beep
+	Loud  Severity = SeverityWarning  // Loud
+	Long  Severity = SeverityError    // Long
+	Blast Severity = SeverityCritical // Blast
 )
 
 // Canonical severities, as stored and returned by the server.
