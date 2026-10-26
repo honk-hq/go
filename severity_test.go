@@ -45,21 +45,15 @@ func TestAliasesAreSentCanonical(t *testing.T) {
 	}
 }
 
-func TestAliasesNormalizedWithSkipValidation(t *testing.T) {
-	body, err := encodeBody(Message{Message: "x", Severity: "BLAST"}, Defaults{}, true)
+func TestUnknownSeverityIsSentAsGiven(t *testing.T) {
+	body, err := EncodeMessage(Message{Message: "x", Severity: "BLAST"}, Defaults{})
 	if err != nil || string(body) != `{"message":"x","severity":"critical"}` {
 		t.Fatalf("%s %v", body, err)
 	}
-	body, _ = encodeBody(Message{Message: "x", Severity: "fatal"}, Defaults{}, true)
-	if string(body) != `{"message":"x","severity":"fatal"}` {
-		t.Fatalf("%s", body)
-	}
-}
-
-func TestUnknownSeverityNamesTheHonkScale(t *testing.T) {
-	_, err := EncodeMessage(Message{Message: "x", Severity: "fatal"}, Defaults{})
-	if err == nil || !strings.Contains(err.Error(), "severity must be one of light (info), beep (success), loud (warning), long (error), blast (critical)") {
-		t.Fatalf("err = %v", err)
+	// The server turns an unknown level into info and says so in a warning.
+	body, err = EncodeMessage(Message{Message: "x", Severity: "fatal"}, Defaults{})
+	if err != nil || string(body) != `{"message":"x","severity":"fatal"}` {
+		t.Fatalf("%s %v", body, err)
 	}
 }
 

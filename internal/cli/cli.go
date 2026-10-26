@@ -36,8 +36,8 @@ const (
 	exitOK         = 0 // accepted (also a duplicate replay)
 	exitError      = 1 // unexpected answer (404 wrong URL, redirect, malformed reply)
 	exitUsage      = 2 // bad flags, or HONK_URL / HONK_KEY missing or malformed
-	exitInvalid    = 3 // the message is invalid (local check, or 400/413/415/422)
-	exitAuth       = 4 // 401/403: bad or revoked key, urgent not allowed, suspended
+	exitInvalid    = 3 // the server refused the message (400/413/415/422)
+	exitAuth       = 4 // 401/403: bad or revoked key, suspended
 	exitQuota      = 5 // 429 after retries: daily quota or rate limit
 	exitConflict   = 6 // 409: idempotency key reused with a different payload
 	exitTemporary  = 7 // network error, timeout or 5xx after retries: safe to rerun with the same key
@@ -45,8 +45,8 @@ const (
   0  accepted (or a duplicate of an accepted event)
   1  unexpected answer (wrong HONK_URL, redirect, malformed reply)
   2  usage error, or HONK_URL / HONK_KEY missing
-  3  invalid message (fix the flags)
-  4  authentication: invalid/revoked key, urgent not allowed, suspended project
+  3  message refused by the server (fix the flags; stderr names the fields)
+  4  authentication: invalid/revoked key, suspended project
   5  quota or rate limit (429); stderr shows Retry-After
   6  idempotency conflict (409): same key, different payload
   7  temporary failure (network, timeout, 5xx) after retries; rerun with the same --idempotency-key`
@@ -69,13 +69,17 @@ func usage() string {
 
 Usage:
   honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]   shortcut with that severity
-  honk send --message TEXT [flags]
+  honk send --message TEXT [--title TEXT] [flags]
   honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]   something broke (event_type problem, severity long)
   honk phew GROUP_KEY [TITLE] MESSAGE [flags]   it works again (event_type recovery, severity beep)
   honk version
 
 uhoh and phew: two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE. They
-also take --group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both).
+also take --group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both);
+the group key is optional there.
+
+Honk delivers first: what the server corrects (a title too long, an invalid URL, …) is
+accepted and printed to stderr as "honk: warning: …" (not with --quiet).
 
 The Honk scale (--severity): light (info), beep (success), loud (warning), long (error),
 blast (critical). Canonical names work too. "problem" and "recovery" are the old names of
@@ -148,7 +152,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.StringVar(&m.Source, "source", getenv("HONK_SOURCE"), "source, ≤ 64 characters (e.g. $(hostname) for cron); default $HONK_SOURCE, else the server's \"api\"")
 	fs.StringVar(&m.Environment, "environment", getenv("HONK_ENVIRONMENT"), "environment, ≤ 32 characters; default $HONK_ENVIRONMENT")
 	fs.StringVar(&m.Channel, "channel", getenv("HONK_CHANNEL"), "channel, ≤ 64 characters; default $HONK_CHANNEL")
-	fs.StringVar(&m.GroupKey, "group-key", "", "group key, ≤ 128 characters (uhoh/phew need one: this flag or the GROUP_KEY argument)")
+	fs.StringVar(&m.GroupKey, "group-key", "", "group key, ≤ 128 characters (optional; without one a message groups by its title)")
 	if cmd == "send" {
 		fs.StringVar((*string)(&m.EventType), "event-type", "", "event, problem, recovery")
 	}
@@ -158,14 +162,14 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.Var(&actions, "action", "button `TITLE=URL`, e.g. \"Call Maria=tel:+15550134\" (https://, mailto:, tel:, sms:); repeatable, up to 3")
 	fs.Var(meta, "meta", "metadata key=value (string) or key:=value (JSON number/boolean); repeatable")
 	fs.IntVar(&m.TTLSeconds, "ttl", 0, "push lifetime in seconds, 60–86400 (default 3600)")
-	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter that orders uhoh/phew of one group (needs a group key)")
+	fs.Int64Var(&seq, "source-sequence", -1, "monotonic counter that orders uhoh/phew of one group")
 	fs.StringVar(&key, "idempotency-key", getenv("HONK_IDEMPOTENCY_KEY"), "stable key for this event, reused on retries; default a new UUIDv7")
 	fs.DurationVar(&timeout, "timeout", 5*time.Second, "timeout of one attempt")
 	fs.DurationVar(&dead, "deadline", 30*time.Second, "total time budget, retries included")
 	fs.IntVar(&retries, "retries", 4, "retries after the first attempt (network errors, 429, 5xx)")
-	fs.BoolVar(&asJSON, "json", false, `print {"id","duplicate","received_at"} instead of the id`)
-	fs.BoolVar(&quiet, "quiet", false, "print nothing on success")
-	fs.BoolVar(&dryRun, "dry-run", false, "validate and print the JSON body without sending")
+	fs.BoolVar(&asJSON, "json", false, `print {"id","duplicate","received_at","warnings"} instead of the id`)
+	fs.BoolVar(&quiet, "quiet", false, "print nothing on success (not even the server's warnings)")
+	fs.BoolVar(&dryRun, "dry-run", false, "print the JSON body without sending")
 	fs.Usage = func() {
 		switch {
 		case shortcut:
@@ -230,10 +234,6 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	}
 	if eventType != "" {
 		m.EventType = eventType
-		if m.GroupKey == "" {
-			fmt.Fprintf(stderr, "%s: %s needs --group-key\n", prog, cmd)
-			return exitUsage
-		}
 	}
 	if m.Message == "-" {
 		b, err := io.ReadAll(bufio.NewReader(io.LimitReader(stdin, 1<<20)))
@@ -243,8 +243,8 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 		}
 		m.Message = strings.TrimRight(string(b), "\n")
 	}
-	if m.Message == "" {
-		fmt.Fprintln(stderr, prog+": --message is required")
+	if strings.TrimSpace(m.Message) == "" && strings.TrimSpace(m.Title) == "" {
+		fmt.Fprintln(stderr, prog+": --message or --title is required")
 		return exitUsage
 	}
 	switch occurredAt {
@@ -289,10 +289,20 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	if err != nil {
 		return report(err)
 	}
+	if !quiet {
+		for _, w := range acc.Warnings {
+			fmt.Fprintf(stderr, "%s: warning: %s\n", prog, w)
+		}
+	}
 	switch {
 	case quiet:
 	case asJSON:
-		_ = json.NewEncoder(stdout).Encode(map[string]any{"id": acc.ID, "duplicate": acc.Duplicate, "received_at": acc.ReceivedAt.UTC().Format(time.RFC3339Nano)})
+		warnings := acc.Warnings
+		if warnings == nil {
+			warnings = []honk.Warning{}
+		}
+		_ = json.NewEncoder(stdout).Encode(map[string]any{"id": acc.ID, "duplicate": acc.Duplicate,
+			"received_at": acc.ReceivedAt.UTC().Format(time.RFC3339Nano), "warnings": warnings})
 	default:
 		fmt.Fprintln(stdout, acc.ID)
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -45,7 +46,11 @@ type Options struct {
 	Deadline time.Duration
 	// Defaults fill Source/Environment/Channel when a message leaves them empty.
 	Defaults Defaults
-	// SkipValidation sends messages without local checks (the server always validates).
+	// Logger, when set, receives one Warn record per warning of an accepted message (what
+	// the server corrected; see Accepted.Warnings). Default: nothing is logged.
+	Logger *slog.Logger
+	// Deprecated: the SDK no longer checks message contents (the server corrects them and
+	// returns Accepted.Warnings), so this has no effect.
 	SkipValidation bool
 	// Backoff between retries: attempt n waits rand(0, min(Max, Base·2ⁿ)) (full jitter), or
 	// the server's Retry-After when longer. Default 500ms / 8s.
@@ -72,7 +77,7 @@ type Client struct {
 	retries   int
 	deadline  time.Duration
 	defaults  Defaults
-	skipCheck bool
+	logger    *slog.Logger
 	backoff   Backoff
 	http      *http.Client
 	userAgent string
@@ -92,12 +97,9 @@ func New(o Options) (*Client, error) {
 	if key == "" {
 		return nil, errors.New("honk: Key is required (a project ingestion key honk_…; is HONK_KEY set?)")
 	}
-	if !strings.HasPrefix(key, "honk_") || strings.ContainsFunc(key, func(r rune) bool { return r < 0x21 || r > 0x7e }) {
-		return nil, errors.New("honk: Key must be a project ingestion key starting with honk_ (create one under Project → Keys)")
-	}
 	c := &Client{
 		url: u, key: key, timeout: o.Timeout, retries: o.Retries, deadline: o.Deadline,
-		defaults: o.Defaults, skipCheck: o.SkipValidation, backoff: o.Backoff,
+		defaults: o.Defaults, logger: o.Logger, backoff: o.Backoff,
 		userAgent: "honk-go/" + Version,
 	}
 	if o.UserAgent != "" {
@@ -151,8 +153,9 @@ func OptionsFromEnv() Options {
 func FromEnv() (*Client, error) { return New(OptionsFromEnv()) }
 
 // Honk sends one event and returns once the server has durably stored it (202), which does
-// not mean a push was delivered. Network errors, 429 and 5xx are retried with the same
-// Idempotency-Key until Retries or the deadline runs out. Errors are *Error.
+// not mean a push was delivered. Accepted.Warnings lists what the server corrected. Network
+// errors, 429 and 5xx are retried with the same Idempotency-Key until Retries or the deadline
+// runs out. Errors are *Error.
 //
 //	c.Honk(ctx, honk.Message{Title: "Someone bought 3 rubber chickens", Message: "Order 1042, €2.97", Severity: honk.Beep})
 func (c *Client) Honk(ctx context.Context, m Message, opts ...Option) (*Accepted, error) {
@@ -160,7 +163,7 @@ func (c *Client) Honk(ctx context.Context, m Message, opts ...Option) (*Accepted
 	for _, o := range opts {
 		o(&call)
 	}
-	body, err := encodeBody(call.msg, c.defaults, c.skipCheck)
+	body, err := encodeBody(call.msg, c.defaults)
 	if err != nil {
 		return nil, err
 	}
@@ -179,6 +182,7 @@ func (c *Client) Honk(ctx context.Context, m Message, opts ...Option) (*Accepted
 	for attempt := 1; ; attempt++ {
 		acc, fail := c.attempt(ctx, body, key, min(c.timeout, time.Until(deadline)), attempt)
 		if fail == nil {
+			c.logWarnings(ctx, acc)
 			return acc, nil
 		}
 		if ctx.Err() != nil {
@@ -204,6 +208,16 @@ func (c *Client) Honk(ctx context.Context, m Message, opts ...Option) (*Accepted
 			return nil, contextError(ctx, key, attempt)
 		case <-t.C:
 		}
+	}
+}
+
+func (c *Client) logWarnings(ctx context.Context, a *Accepted) {
+	if c.logger == nil {
+		return
+	}
+	for _, w := range a.Warnings {
+		c.logger.WarnContext(ctx, "honk: the server corrected the message",
+			slog.String("id", a.ID), slog.String("field", w.Field), slog.String("code", w.Code), slog.String("message", w.Message))
 	}
 }
 
@@ -344,7 +358,8 @@ func (c *Client) Send(ctx context.Context, m Message, opts ...Option) (*Accepted
 }
 
 // Uhoh reports that something broke: a problem for groupKey (opens or continues its
-// incident). Severity defaults to Long (error); WithSeverity overrides it.
+// incident; "" groups by the title). Severity defaults to Long (error); WithSeverity
+// overrides it.
 //
 //	c.Uhoh(ctx, "oven/kitchen", "The cake is burning", "Oven at 260 °C")
 func (c *Client) Uhoh(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
@@ -353,8 +368,8 @@ func (c *Client) Uhoh(ctx context.Context, groupKey, title, message string, opts
 	})
 }
 
-// Phew reports that groupKey works again: a recovery (closes its open incident). Severity
-// defaults to Beep (success); WithSeverity overrides it.
+// Phew reports that groupKey works again: a recovery (closes its open incident; "" groups
+// by the title). Severity defaults to Beep (success); WithSeverity overrides it.
 //
 //	c.Phew(ctx, "oven/kitchen", "Cake saved", "Nobody needs to know.")
 func (c *Client) Phew(ctx context.Context, groupKey, title, message string, opts ...Option) (*Accepted, error) {
@@ -388,12 +403,12 @@ func (c *Client) Loud(ctx context.Context, title, message string, opts ...Option
 	return c.withSeverity(ctx, SeverityWarning, title, message, opts)
 }
 
-// Long sends a Long message (severity error; pushes at least as high priority).
+// Long sends a Long message (severity error).
 func (c *Client) Long(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityError, title, message, opts)
 }
 
-// Blast sends a Blast message (severity critical; pushes at least as high priority).
+// Blast sends a Blast message (severity critical).
 func (c *Client) Blast(ctx context.Context, title, message string, opts ...Option) (*Accepted, error) {
 	return c.withSeverity(ctx, SeverityCritical, title, message, opts)
 }

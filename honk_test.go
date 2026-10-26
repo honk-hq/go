@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -336,7 +338,7 @@ func TestOldNamesSendTheSameRequests(t *testing.T) {
 		if errA != nil || errB != nil {
 			t.Fatalf("%s: %v / %v", p.name, errA, errB)
 		}
-		if *a != *b {
+		if !reflect.DeepEqual(a, b) {
 			t.Errorf("%s: results differ: %+v vs %+v", p.name, a, b)
 		}
 	}
@@ -361,15 +363,16 @@ func TestOldNamesSendTheSameRequests(t *testing.T) {
 	if !strings.Contains(string(r[2].body), `"event_type":"problem"`) || !strings.Contains(string(r[4].body), `"event_type":"recovery"`) {
 		t.Errorf("event types: %s / %s", r[2].body, r[4].body)
 	}
-	// Errors match too: a recovery without a group key is refused locally under both names.
+	// A recovery without a group key is sent (it groups by its title) under both names.
 	for _, phew := range []groupHelper{c.Phew, c.Recovery} {
-		_, err := phew(ctx, "", "t", "m")
-		if he := asError(t, err); he.Kind != KindValidation || !he.Local || he.Fields[0].Field != "group_key" {
-			t.Errorf("recovery without group key: %+v", he)
+		if _, err := phew(ctx, "", "Oven OK", "m", WithIdempotencyKey("k-ng")); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if len(m.requests()) != 2*len(pairs) {
-		t.Errorf("an invalid recovery was sent")
+	r = m.requests()
+	want := `{"title":"Oven OK","message":"m","severity":"success","source":"oven-pi","event_type":"recovery"}`
+	if len(r) != 2*len(pairs)+2 || string(r[len(r)-2].body) != want || string(r[len(r)-1].body) != want {
+		t.Errorf("recovery without group key: %d requests, last %s", len(r), r[len(r)-1].body)
 	}
 }
 
@@ -512,7 +515,9 @@ func TestErrorMappingNeverRetried(t *testing.T) {
 		{errStep(422, "unknown_field", "", `,"fields":[{"field":"foo","code":"not_allowed"}]`), ErrValidation, KindValidation, "unknown_field"},
 		{errStep(413, "payload_too_large", "", ""), ErrValidation, KindValidation, "payload_too_large"},
 		{errStep(401, "invalid_key", "", ""), ErrAuth, KindAuth, "invalid_key"},
-		{errStep(403, "priority_not_allowed", "", ""), ErrAuth, KindAuth, "priority_not_allowed"},
+		{errStep(422, "validation_failed", "", `,"fields":[{"field":"event_type","code":"invalid_enum"}]`), ErrValidation, KindValidation, "validation_failed"},
+		{errStep(400, "invalid_json", "", ""), ErrValidation, KindValidation, "invalid_json"},
+		{errStep(403, "project_suspended", "", ""), ErrAuth, KindAuth, "project_suspended"},
 		{errStep(403, "workspace_suspended", "", ""), ErrAuth, KindAuth, "workspace_suspended"},
 		{errStep(409, "idempotency_conflict", "", ""), ErrConflict, KindConflict, "idempotency_conflict"},
 		{errStep(404, "not_found", "", ""), nil, KindHTTP, "not_found"},
@@ -535,15 +540,96 @@ func TestErrorMappingNeverRetried(t *testing.T) {
 	}
 }
 
-func TestValidationErrorFields(t *testing.T) {
-	m := newMock(t, errStep(422, "validation_failed", "", `,"fields":[{"field":"image_url","code":"invalid_format","message":"must be https"}]`))
-	_, err := client(t, m.URL).Send(context.Background(), Message{Message: "x"})
+func TestServerErrorIsSurfaced(t *testing.T) {
+	m := newMock(t, step{status: 422, body: `{"error":{"code":"validation_failed","message":"Request validation failed",` +
+		`"fields":[{"field":"event_type","code":"invalid_enum","message":"must be one of event, problem, recovery"},{"field":"message","code":"required"}],` +
+		`"request_id":"req_01k6abc"}}`})
+	_, err := client(t, m.URL).Send(context.Background(), Message{Message: "x", EventType: "incident"}, WithIdempotencyKey("k-422"))
 	he := asError(t, err)
-	if len(he.Fields) != 1 || he.Fields[0] != (FieldError{Field: "image_url", Code: "invalid_format", Message: "must be https"}) {
-		t.Fatalf("fields %+v", he.Fields)
+	want := []FieldError{{Field: "event_type", Code: "invalid_enum", Message: "must be one of event, problem, recovery"}, {Field: "message", Code: "required"}}
+	if !reflect.DeepEqual(he.Fields, want) || he.RequestID != "req_01k6abc" || he.Code != "validation_failed" || he.Status != 422 ||
+		he.Local || he.IdempotencyKey != "k-422" || !errors.Is(err, ErrValidation) {
+		t.Fatalf("error %+v", he)
 	}
-	if !strings.Contains(err.Error(), "image_url must be https") {
-		t.Fatalf("message %q", err.Error())
+	if got := err.Error(); got != "honk: 422 validation_failed: Request validation failed "+
+		"(event_type invalid_enum: must be one of event, problem, recovery; message required) [request req_01k6abc]" {
+		t.Fatalf("message %q", got)
+	}
+}
+
+func TestRequestIDFromHeader(t *testing.T) {
+	m := newMock(t, step{status: 401, headers: map[string]string{"X-Request-ID": "req_hdr"}, body: `{"error":{"code":"invalid_key","message":"Invalid or revoked ingestion key"}}`})
+	_, err := client(t, m.URL).Send(context.Background(), Message{Message: "x"})
+	if he := asError(t, err); he.RequestID != "req_hdr" || !strings.HasSuffix(err.Error(), "[request req_hdr]") || !errors.Is(err, ErrAuth) {
+		t.Fatalf("error %+v / %q", he, err.Error())
+	}
+}
+
+func TestWarningsArePassedThrough(t *testing.T) {
+	m := newMock(t, step{status: 202, body: `{"id":"msg_w","status":"accepted","duplicate":false,"received_at":"2026-10-02T21:10:00.123Z","warnings":[` +
+		`{"field":"title","code":"truncated","message":"title is longer than 160 characters; shortened"},` +
+		`{"field":"actions[1].url","code":"ignored","message":"not an https, mailto, tel or sms URL; the action was left out"},` +
+		`{"field":"priority","code":"downgraded","message":"urgent needs a key with allow_urgent; sent as high"}]}`})
+	var logged strings.Builder
+	logger := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+		if a.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return a
+	}}))
+	acc, err := client(t, m.URL, func(o *Options) { o.Logger = logger }).Send(context.Background(), Message{
+		Title: strings.Repeat("t", 200), Message: "x", Priority: PriorityUrgent,
+		Actions: []Action{{Title: "Call", URL: "tel:+15550134"}, {Title: "Run", URL: "javascript:alert(1)"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Warning{
+		{Field: "title", Code: WarningTruncated, Message: "title is longer than 160 characters; shortened"},
+		{Field: "actions[1].url", Code: WarningIgnored, Message: "not an https, mailto, tel or sms URL; the action was left out"},
+		{Field: "priority", Code: WarningDowngraded, Message: "urgent needs a key with allow_urgent; sent as high"},
+	}
+	if acc.ID != "msg_w" || !reflect.DeepEqual(acc.Warnings, want) {
+		t.Fatalf("accepted %+v", acc)
+	}
+	if got := acc.Warnings[0].String(); got != "title truncated: title is longer than 160 characters; shortened" {
+		t.Errorf("String() = %q", got)
+	}
+	lines := strings.Split(strings.TrimSpace(logged.String()), "\n")
+	if len(lines) != 3 || lines[1] != `level=WARN msg="honk: the server corrected the message" id=msg_w field=actions[1].url code=ignored message="not an https, mailto, tel or sms URL; the action was left out"` {
+		t.Fatalf("log:\n%s", logged.String())
+	}
+	// Everything was sent as given: the SDK does not check field contents.
+	body := string(m.requests()[0].body)
+	if !strings.Contains(body, `"priority":"urgent"`) || !strings.Contains(body, `javascript:alert(1)`) {
+		t.Fatalf("body %s", body)
+	}
+}
+
+func TestNoWarnings(t *testing.T) {
+	m := newMock(t, okStep(false), step{status: 202, body: `{"id":"msg_1","status":"accepted","duplicate":false,"received_at":"2026-10-02T21:10:00.123Z","warnings":[]}`})
+	var logged strings.Builder
+	c := client(t, m.URL, func(o *Options) { o.Logger = slog.New(slog.NewTextHandler(&logged, nil)) })
+	for range 2 {
+		acc, err := c.Send(context.Background(), Message{Message: "x"})
+		if err != nil || len(acc.Warnings) != 0 {
+			t.Fatalf("acc %+v err %v", acc, err)
+		}
+	}
+	if logged.Len() != 0 {
+		t.Fatalf("logged %q", logged.String())
+	}
+}
+
+func TestWarningsOnlyOnceAfterRetries(t *testing.T) {
+	m := newMock(t, errStep(503, "unavailable", "0", ""), step{status: 202, body: `{"id":"msg_1","duplicate":false,"received_at":"2026-10-02T21:10:00.123Z","warnings":[{"field":"ttl_seconds","code":"clamped","message":"moved to 60"}]}`})
+	var logged strings.Builder
+	acc, err := client(t, m.URL, func(o *Options) { o.Logger = slog.New(slog.NewTextHandler(&logged, nil)) }).Send(context.Background(), Message{Message: "x", TTLSeconds: 5})
+	if err != nil || len(acc.Warnings) != 1 || acc.Warnings[0].Code != WarningClamped {
+		t.Fatalf("acc %+v err %v", acc, err)
+	}
+	if n := strings.Count(logged.String(), "level=WARN"); n != 1 {
+		t.Fatalf("logged %d warnings: %s", n, logged.String())
 	}
 }
 
@@ -572,14 +658,71 @@ func TestDuplicate(t *testing.T) {
 	}
 }
 
-func TestSkipValidation(t *testing.T) {
-	m := newMock(t, errStep(422, "validation_failed", "", `,"fields":[{"field":"severity","code":"invalid_enum"}]`))
-	_, err := client(t, m.URL, func(o *Options) { o.SkipValidation = true }).Send(context.Background(), Message{Message: "x", Severity: "fatal"})
-	if he := asError(t, err); he.Local || he.Kind != KindValidation {
-		t.Fatalf("error = %+v", he)
+func TestFieldContentsAreSentAsGiven(t *testing.T) {
+	m := newMock(t, okStep(false))
+	long := strings.Repeat("é", 9000)
+	msg := Message{
+		Title: "two\nlines", Message: long, Severity: "fatal", Priority: "asap", Category: "crm", EventType: EventTypeRecovery,
+		URL: "http://example.com", ImageURL: "ftp://x", TTLSeconds: 5, SourceSequence: Ptr[int64](-1),
+		GroupKey: strings.Repeat("g", 200), Metadata: map[string]any{"bad key": map[string]any{"a": 1}},
+		Actions: []Action{{}, {Title: "Run", URL: "javascript:alert(1)"}, {Title: "a"}, {Title: "b"}},
 	}
-	if !strings.Contains(string(m.requests()[0].body), `"severity":"fatal"`) {
-		t.Fatal("severity not sent")
+	for _, skip := range []bool{false, true} { // SkipValidation is a no-op now
+		if _, err := client(t, m.URL, func(o *Options) { o.SkipValidation = skip }).Send(context.Background(), msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := m.requests()
+	if len(r) != 2 || string(r[0].body) != string(r[1].body) {
+		t.Fatalf("%d requests", len(r))
+	}
+	var got map[string]any
+	if err := json.Unmarshal(r[0].body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["severity"] != "fatal" || got["priority"] != "asap" || got["ttl_seconds"] != 5.0 || got["source_sequence"] != -1.0 ||
+		got["message"] != long || len(got["actions"].([]any)) != 4 || got["event_type"] != "recovery" {
+		t.Fatalf("body %v", got)
+	}
+}
+
+func TestTitleOrMessageRequired(t *testing.T) {
+	m := newMock(t, okStep(false))
+	c := client(t, m.URL)
+	for _, msg := range []Message{{}, {Message: "  \n"}, {Title: " ", Severity: Loud}} {
+		_, err := c.Send(context.Background(), msg)
+		he := asError(t, err)
+		if !he.Local || he.Kind != KindValidation || !errors.Is(err, ErrValidation) || he.Attempts != 0 ||
+			len(he.Fields) != 1 || he.Fields[0].Field != "message" || he.Fields[0].Code != "required" {
+			t.Fatalf("%+v: error = %+v", msg, he)
+		}
+		if err.Error() != "honk: not sent (message required: a message or a title is required)" {
+			t.Fatalf("message %q", err.Error())
+		}
+	}
+	if len(m.requests()) != 0 {
+		t.Fatal("an empty message was sent")
+	}
+	// A title alone is enough: the server stores message "".
+	if _, err := c.Loud(context.Background(), "Disk 91%", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(m.requests()[0].body); got != `{"title":"Disk 91%","severity":"warning"}` {
+		t.Fatalf("body %s", got)
+	}
+}
+
+func TestInvalidIdempotencyKeys(t *testing.T) {
+	m := newMock(t, okStep(false))
+	c := client(t, m.URL)
+	for _, k := range []string{"has space", strings.Repeat("x", 129), "ünicode", "line\nbreak"} {
+		_, err := c.Send(context.Background(), Message{Message: "x"}, WithIdempotencyKey(k))
+		if he := asError(t, err); !he.Local || he.Fields[0].Field != "Idempotency-Key" {
+			t.Errorf("key %q: %+v", k, he)
+		}
+	}
+	if len(m.requests()) != 0 {
+		t.Fatal("an invalid key was sent")
 	}
 }
 
@@ -591,7 +734,7 @@ func TestNewValidatesOptions(t *testing.T) {
 		{Options{Key: testKey}, "HONK_URL"},
 		{Options{URL: "honk.example.com", Key: testKey}, "https://"},
 		{Options{URL: "https://h"}, "HONK_KEY"},
-		{Options{URL: "https://h", Key: "hka_mobile"}, "honk_"},
+		{Options{URL: "https://h", Key: "  "}, "HONK_KEY"},
 	} {
 		if _, err := New(tc.o); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("New(%+v) = %v, want error mentioning %q", tc.o, err, tc.want)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"net/url"
+	"os"
 	"time"
 
 	honk "github.com/honk-hq/go"
@@ -85,6 +87,22 @@ func ExampleAction() {
 	}
 }
 
+// The server corrects what it can and says so; the message is delivered either way.
+func ExampleWarning() {
+	c, _ := honk.New(honk.Options{
+		URL: os.Getenv("HONK_URL"), Key: os.Getenv("HONK_KEY"),
+		Logger: slog.Default(), // logs each warning at Warn level
+	})
+	acc, err := c.Loud(context.Background(), "Disk 91%", "/var on app-01", honk.WithURL("http://grafana.local/d/disk"))
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	for _, w := range acc.Warnings {
+		log.Printf("honk corrected %s", w) // "url ignored: must be an https URL …; left out"
+	}
+}
+
 func ExampleError() {
 	c, _ := honk.FromEnv()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -94,7 +112,7 @@ func ExampleError() {
 	switch {
 	case err == nil:
 	case errors.Is(err, honk.ErrValidation):
-		log.Printf("fix the message: %v", err) // he.Fields lists every invalid field
+		log.Printf("fix the message: %v", err) // code, refused fields and request id
 	case errors.Is(err, honk.ErrQuota) && errors.As(err, &he):
 		log.Printf("over quota, retry in %s", he.RetryAfter)
 	case errors.As(err, &he) && he.Retryable():

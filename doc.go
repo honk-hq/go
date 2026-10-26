@@ -16,6 +16,10 @@
 // total deadline. Errors are *Error; match them with errors.Is(err, honk.ErrQuota) and
 // friends, or errors.As for the details.
 //
+// The client is a thin wrapper: it does not check field contents. The server delivers first:
+// it refuses only what it cannot deliver and corrects the rest, listing each correction in
+// Accepted.Warnings (set Options.Logger to log them).
+//
 // The ingestion key belongs on the server side only. Call the client from a goroutine or a
 // queue so the critical path of your service never waits for a notification.
 package honk

@@ -5,6 +5,41 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+The server now delivers first (contracts/API.md §5.1): it refuses only what it cannot deliver
+and corrects the rest, returning `warnings` with the `202`. The SDK becomes a thin wrapper.
+
+### Added
+- `Accepted.Warnings` (`[]honk.Warning{Field, Code, Message}`): what the server corrected
+  before accepting the message (a title shortened, an invalid URL or button left out, a TTL
+  clamped, `urgent` lowered to `high`, …). Codes: `honk.WarningTruncated`,
+  `WarningNormalized`, `WarningIgnored`, `WarningClamped`, `WarningDowngraded`, `WarningHashed`.
+- `Options.Logger` (`*slog.Logger`): when set, every warning is logged at `Warn` level, once
+  per accepted message (not per retry).
+- CLI: warnings are printed to stderr as `honk: warning: <field> <code>: <message>` (not with
+  `--quiet`), and `--json` includes `"warnings"`.
+
+### Changed
+- No more local checks of field contents (lengths, URLs, actions, metadata, enums, TTL,
+  source sequence, body size, group-key rules): fields are sent as given and the server
+  decides. The only local checks left: a title or a message is present, `URL` and `Key` are
+  set (the URL must be `http(s)://`), and an `Idempotency-Key` you pass can be sent as a header.
+- A message with only a `Title` is valid (it is sent without `message`).
+- The group key is optional everywhere: a recovery or a source sequence without one is sent
+  (it groups by its title). `Uhoh`/`Phew` accept `""`, and the CLI's `uhoh`/`phew` no longer
+  require `--group-key`.
+- `Error.Error()` now names each refused field with its code and message and ends with the
+  request ID: `honk: 422 validation_failed: … (event_type invalid_enum: must be one of …) [request req_…]`.
+- `New` no longer requires the key to start with `honk_` (the server answers `401 invalid_key`).
+- `Accepted` holds a slice now, so it can no longer be compared with `==`.
+
+### Deprecated
+- `Options.SkipValidation`: has no effect.
+
+### Removed
+- The exported limit constants (`MaxTitle`, `MaxMessageBytes`, `MaxBodyBytes`, …): the server
+  owns the limits.
+- References to the retired error codes `priority_not_allowed` and `requires_group_key`.
+
 ## [0.4.1] - 2026-10-18
 
 ### Changed

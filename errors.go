@@ -11,10 +11,10 @@ import (
 type Kind string
 
 const (
-	// KindValidation: the message is invalid (rejected locally, or 400/413/415/422). Fix it.
+	// KindValidation: the request cannot be delivered (no title or message, invalid JSON,
+	// body over 16 KiB, an unknown field or event type: 400/413/415/422). Fix it.
 	KindValidation Kind = "validation"
-	// KindAuth: 401/403 — invalid or revoked key, priority_not_allowed (urgent without
-	// allow_urgent), project_suspended, workspace_suspended.
+	// KindAuth: 401/403 — invalid or revoked key, project_suspended, workspace_suspended.
 	KindAuth Kind = "auth"
 	// KindQuota: 429 quota_exceeded (daily messages_per_day, until UTC midnight) or
 	// rate_limited, after retries. See RetryAfter.
@@ -46,12 +46,12 @@ var (
 	ErrServer     = errors.New("honk: server error")
 )
 
-// FieldError is one invalid field, from the server (error.fields[]) or local validation.
+// FieldError is one refused field, from the server (error.fields[]) or the SDK's own check.
 type FieldError struct {
-	// Field is the wire name: group_key, metadata.region, Idempotency-Key, body, …
+	// Field is the wire name: message, event_type, Idempotency-Key, body, …
 	Field string `json:"field"`
 	// Code: required, too_long, too_short, invalid_enum, invalid_format, out_of_range,
-	// not_allowed, invalid_utf8, requires_group_key.
+	// not_allowed, invalid_utf8.
 	Code    string `json:"code"`
 	Message string `json:"message,omitempty"`
 }
@@ -65,10 +65,12 @@ type Error struct {
 	// Code is the API error code (invalid_key, quota_exceeded, …), or network_error/timeout.
 	Code    string
 	Message string
-	// Fields lists invalid fields for KindValidation.
+	// Fields lists the refused fields for KindValidation.
 	Fields []FieldError
-	// Local is true when the SDK rejected the message before sending anything.
-	Local     bool
+	// Local is true when the SDK refused the message before sending anything (no title or
+	// message, or an Idempotency-Key that cannot be sent as a header).
+	Local bool
+	// RequestID identifies the request in the server's logs (error.request_id or X-Request-ID).
 	RequestID string
 	// IdempotencyKey that was used. Retry later with the same key to stay duplicate-free.
 	IdempotencyKey string
@@ -93,13 +95,15 @@ func (e *Error) Error() string {
 	if len(e.Fields) > 0 {
 		parts := make([]string, len(e.Fields))
 		for i, f := range e.Fields {
-			msg := f.Message
-			if msg == "" {
-				msg = f.Code
+			parts[i] = f.Field + " " + f.Code
+			if f.Message != "" {
+				parts[i] += ": " + f.Message
 			}
-			parts[i] = f.Field + " " + msg
 		}
 		b.WriteString(" (" + strings.Join(parts, "; ") + ")")
+	}
+	if e.RequestID != "" {
+		b.WriteString(" [request " + e.RequestID + "]")
 	}
 	return b.String()
 }
@@ -138,5 +142,5 @@ func (e *Error) Retryable() bool {
 }
 
 func localValidation(fields []FieldError) *Error {
-	return &Error{Kind: KindValidation, Code: "validation_failed", Local: true, Fields: fields, Message: "invalid message"}
+	return &Error{Kind: KindValidation, Code: "validation_failed", Local: true, Fields: fields, Message: "not sent"}
 }

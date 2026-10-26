@@ -66,7 +66,17 @@ func TestIntegrationCLI(t *testing.T) {
 	if code, _, e := runCLI(t, bad, "", "send", "--message", "x"); code != exitAuth {
 		t.Fatalf("wrong key: %d %s", code, e)
 	}
-	if code, _, e := runCLI(t, env, "", "send", "--message", "x", "--priority", "urgent"); code != exitAuth && code != exitOK {
+	// Urgent from a key without allow_urgent is delivered as high, with a warning on stderr.
+	if code, _, e := runCLI(t, env, "", "send", "--message", "urgent "+run, "--priority", "urgent"); code != exitOK ||
+		(e != "" && !strings.Contains(e, "honk: warning: priority downgraded")) {
 		t.Fatalf("urgent: %d %s", code, e)
+	}
+	// Invalid optional fields are corrected, not refused.
+	if code, out, e := runCLI(t, env, "", "send", "--message", "fix me "+run, "--url", "ftp://example.com", "--ttl", "5", "--json"); code != exitOK ||
+		!strings.Contains(out, `"field":"url","code":"ignored"`) || !strings.Contains(out, `"field":"ttl_seconds","code":"clamped"`) {
+		t.Fatalf("warnings: %d %q %s", code, out, e)
+	}
+	if code, _, e := runCLI(t, env, "", "send", "--message", "x", "--event-type", "incident"); code != exitInvalid || !strings.Contains(e, "event_type invalid_enum") {
+		t.Fatalf("invalid event type: %d %s", code, e)
 	}
 }

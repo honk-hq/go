@@ -156,46 +156,53 @@ func TestIntegrationWrongKey(t *testing.T) {
 	}
 }
 
-func TestIntegrationUrgentNotAllowed(t *testing.T) {
+// Urgent from a key without allow_urgent is delivered as high, with a "downgraded" warning.
+func TestIntegrationUrgentIsDowngraded(t *testing.T) {
 	c := integrationClient(t)
 	acc, err := c.Send(context.Background(), honk.Message{Message: "urgent " + run, Priority: honk.PriorityUrgent})
-	if err == nil {
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(acc.Warnings) == 0 {
 		t.Logf("key allows urgent: accepted %s", acc.ID)
 		return
 	}
-	var he *honk.Error
-	if !errors.Is(err, honk.ErrAuth) || !errors.As(err, &he) || he.Code != "priority_not_allowed" || he.Status != 403 {
-		t.Fatalf("err = %v", err)
+	if len(acc.Warnings) != 1 || acc.Warnings[0].Field != "priority" || acc.Warnings[0].Code != honk.WarningDowngraded {
+		t.Fatalf("warnings %+v", acc.Warnings)
 	}
 }
 
-func TestIntegrationServerValidation(t *testing.T) {
-	c := integrationClient(t, func(o *honk.Options) { o.SkipValidation = true })
-	_, err := c.Send(context.Background(), honk.Message{Message: "x", Severity: "fatal", TTLSeconds: 5})
-	var he *honk.Error
-	if !errors.Is(err, honk.ErrValidation) || !errors.As(err, &he) || he.Local || he.Status != 422 || he.Code != "validation_failed" {
-		t.Fatalf("err = %v", err)
+// Deliver first: invalid optional fields are corrected or left out, with warnings.
+func TestIntegrationServerCorrections(t *testing.T) {
+	c := integrationClient(t)
+	acc, err := c.Send(context.Background(), honk.Message{
+		Title: strings.Repeat("t", 200), Message: "corrections " + run, Severity: "fatal", TTLSeconds: 5,
+		URL: "ftp://example.com", EventType: honk.EventTypeRecovery, // a recovery no longer needs a group key
+		Actions: []honk.Action{{Title: "Call", URL: "tel:+15550134"}, {Title: "Run", URL: "javascript:alert(1)"}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var fields []string
-	for _, f := range he.Fields {
-		fields = append(fields, f.Field+":"+f.Code)
+	var got []string
+	for _, w := range acc.Warnings {
+		got = append(got, w.Field+":"+w.Code)
 	}
-	sort.Strings(fields)
-	if strings.Join(fields, ",") != "severity:invalid_enum,ttl_seconds:out_of_range" {
-		t.Fatalf("fields %v", fields)
+	sort.Strings(got)
+	want := "actions[1].url:ignored,severity:ignored,title:truncated,ttl_seconds:clamped,url:ignored"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("warnings %v, want %s", got, want)
 	}
 }
 
-func TestIntegrationServerActionValidation(t *testing.T) {
-	c := integrationClient(t, func(o *honk.Options) { o.SkipValidation = true })
-	_, err := c.Send(context.Background(), honk.Message{Message: "x", Actions: []honk.Action{
-		{Title: "Call", URL: "tel:+15550134"}, {Title: "Run", URL: "javascript:alert(1)"},
-	}})
+// What the server cannot deliver is still refused, with the field and a request id.
+func TestIntegrationServerRefusal(t *testing.T) {
+	c := integrationClient(t)
+	_, err := c.Send(context.Background(), honk.Message{Message: "x", EventType: "incident"})
 	var he *honk.Error
-	if !errors.Is(err, honk.ErrValidation) || !errors.As(err, &he) || he.Local || he.Status != 422 {
+	if !errors.Is(err, honk.ErrValidation) || !errors.As(err, &he) || he.Local || he.Status != 422 || he.Code != "validation_failed" || he.RequestID == "" {
 		t.Fatalf("err = %v", err)
 	}
-	if len(he.Fields) != 1 || he.Fields[0].Field != "actions[1].url" || he.Fields[0].Code != "invalid_format" {
+	if len(he.Fields) != 1 || he.Fields[0].Field != "event_type" || he.Fields[0].Code != "invalid_enum" {
 		t.Fatalf("fields %+v", he.Fields)
 	}
 }

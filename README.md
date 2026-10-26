@@ -34,6 +34,8 @@ Until 0.3.0 the methods were called `Send`, `Problem` and `Recovery`, and the CL
 - CLI `honk` for shell scripts, cron and CI (replaces the cURL snippet).
 - Retries with backoff, `Retry-After`, a total deadline and an idempotency key on every send,
   so a retry never creates a duplicate.
+- A thin wrapper: the server checks your message, delivers it and tells you what it corrected
+  (`Accepted.Warnings`, see [Warnings](#warnings)).
 
 The ingestion key (`honk_…`) is a secret: keep it in the environment or a secret store, never
 in source code or client apps.
@@ -82,7 +84,7 @@ Honk names as input aliases, in any case, and always sends the canonical value.
 
 The horn constants are aliases (`honk.Loud == honk.SeverityWarning`), and `Severity: "LOUD"`
 is normalized too, so alias and canonical spellings are the same event, also for idempotency.
-`Long` and `Blast` push at least as high priority. `Info`, `Success`, `Warning`, `Error` and
+The level alone decides how loudly the push interrupts. `Info`, `Success`, `Warning`, `Error` and
 `Critical` remain as synonyms; `honk.ParseSeverity("Blast")` returns `SeverityCritical`.
 
 ## Recipe: notify me when a customer asks for something
@@ -99,9 +101,9 @@ func onCustomerRequest(r CustomerRequest) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		_, err := notifier.Honk(ctx, honk.Message{
-			Title:    truncate("New request: "+r.Subject, 150),
-			Message:  truncate(fmt.Sprintf("%s (%s) asked: %s", r.Name, r.Company, r.Body), 2000),
-			Priority: honk.PriorityHigh, // push right away
+			Title:    "New request: " + r.Subject, // too long? the server shortens it (a warning)
+			Message:  fmt.Sprintf("%s (%s) asked: %s", r.Name, r.Company, r.Body),
+			Severity: honk.Loud,
 			Category: honk.CategoryCustomers,
 			Channel:  "requests",
 			GroupKey: fmt.Sprintf("requests/%d", r.ID), // one group per request
@@ -113,13 +115,6 @@ func onCustomerRequest(r CustomerRequest) {
 		}
 	}()
 }
-
-func truncate(s string, n int) string { // by runes, never splits UTF-8
-	if r := []rune(s); len(r) > n {
-		return string(r[:n-1]) + "…"
-	}
-	return s
-}
 ```
 
 From a queue worker, return the error when `he.Retryable()` and let the queue retry with the
@@ -130,31 +125,30 @@ same key.
 Messages with the same `GroupKey` (per project, environment, source and channel) form one
 group: the first one pushes, repeats update it calmly instead of buzzing again. Use one key
 per customer request (`requests/<id>`), and a shared key only for repeats of the same problem
-(`queue/failed-jobs`). `Uhoh`/`Phew` pairs need a `GroupKey`.
+(`queue/failed-jobs`). The group key is optional: without one a message groups by its title.
+Give `Uhoh`/`Phew` pairs the same key so the recovery closes the right incident.
 
 ## Sending
 
 ```go
 func (c *Client) Honk(ctx context.Context, m honk.Message, opts ...honk.Option) (*honk.Accepted, error)
-// Accepted{ID, Duplicate, ReceivedAt}
+// Accepted{ID, Duplicate, ReceivedAt, Warnings}
 ```
+
+The essentials:
 
 | Field | Notes |
 |---|---|
-| `Message` | **required**, 1–8192 bytes UTF-8, line breaks allowed |
-| `Title` | ≤ 160 chars, one line; default: first line of `Message` |
-| `Severity` | `honk.Light` `Beep` `Loud` `Long` `Blast` (or `SeverityInfo` … `SeverityCritical`, or any-case strings); `Long`/`Blast` push at least as high |
-| `Priority` | `PriorityLow` `PriorityNormal` `PriorityHigh` `PriorityUrgent` (urgent needs a key with *allow urgent*) |
-| `Category` | `CategoryInfrastructure`, `CategorySecurity`, `CategoryBackups`, `CategoryDeployments`, `CategoryPayments`, `CategoryCustomers`, `CategorySales`, `CategoryAutomation`, `CategoryPersonal`, `CategoryOther` |
-| `Source` / `Environment` / `Channel` | ≤ 64 / 32 / 64 chars; default `api` / `default` / `general` or `Options.Defaults` |
-| `GroupKey` | ≤ 128 chars |
-| `EventType` | `EventTypeEvent` `EventTypeProblem` `EventTypeRecovery` (recovery needs `GroupKey`) |
-| `OccurredAt` | `time.Time`, sent as UTC RFC 3339 with milliseconds |
-| `URL` / `ImageURL` | `https://` only, no credentials (`ImageURL`: no `#fragment`; fetched by the server afterwards) |
-| `Actions` | `[]honk.Action{{Title, URL}}`, up to 3 buttons, the first is the primary; see below |
-| `Metadata` | `map[string]any`, ≤ 16 keys `[A-Za-z0-9_.-]{1,64}`; string (≤ 512 chars), number or bool values |
-| `TTLSeconds` | push lifetime 60–86400 (0 = default 3600) |
-| `SourceSequence` | `*int64` (`honk.Ptr[int64](n)`), 0 … 2^53-1, needs `GroupKey` |
+| `Message` | the text, line breaks allowed |
+| `Title` | one line; default: the first line of `Message`. A title or a message is required |
+| `Severity` | the level: `honk.Light` `Beep` `Loud` `Long` `Blast` (or `SeverityInfo` … `SeverityCritical`, or any-case strings); default Light |
+| `GroupKey` | optional; relates occurrences (see above) |
+| `EventType` | `EventTypeProblem` / `EventTypeRecovery`, or use `Uhoh` / `Phew` |
+
+Also: `Priority`, `Category`, `Source` / `Environment` / `Channel` (default `Options.Defaults`),
+`OccurredAt`, `URL`, `ImageURL`, `Actions`, `Metadata`, `TTLSeconds`, `SourceSequence`
+(`honk.Ptr[int64](n)`). The SDK sends them as given; the server applies the limits and says
+what it corrected (see [Warnings](#warnings)).
 
 Zero values are omitted. A nil error means Honk! Honk! **durably stored** the message (`202`), not
 that a push was delivered or read. `honk.EncodeMessage(m, defaults)` returns the exact JSON.
@@ -190,14 +184,11 @@ _, err := c.Honk(ctx, honk.Message{
 })
 ```
 
-- `Title`: 1–40 characters, one line, shown as sent.
-- `URL`, at most 2048 bytes without spaces: `https://` (no credentials); `mailto:` with one
-  address and optionally `?subject=…&body=…` (percent-encoded with `url.PathEscape`, no other
-  keys); `tel:` with a number (digits, `-` `.` `(` `)`, `+` only first); `sms:` with a number
-  and optionally `?body=…`. Other schemes are refused.
-- Honk! Honk! never opens or fetches them; the app does when you tap one. They appear on the
-  message in the app and the web inbox, and on iPhone notifications that show the message
-  text. Errors name the button: `actions[1].url`.
+- `Title`: a short label, shown as sent.
+- `URL`: `https://`, `mailto:` (optionally `?subject=…&body=…`, percent-encoded with
+  `url.PathEscape`), `tel:` or `sms:`. The server leaves out a button it cannot use and keeps
+  the others, with a warning that names it: `actions[1].url`.
+- Honk! Honk! never opens or fetches them; the app does when you tap one.
 - Helpers take `honk.WithActions(honk.Action{…}, …)`; the CLI takes
   `--action "Call Maria=tel:+15550134"`.
 
@@ -211,10 +202,33 @@ honk.New(honk.Options{
 	Retries:  4,                // after the first attempt; honk.NoRetries disables
 	Deadline: 30 * time.Second, // total, waits included; a shorter ctx deadline wins
 	Defaults: honk.Defaults{Source: "billing", Environment: "production"},
-	SkipValidation: false,      // local checks (the server always validates)
+	Logger:   slog.Default(),   // logs the server's warnings (optional)
 	HTTPClient: myClient,       // proxies, tracing; redirects are never followed
 })
 ```
+
+## Warnings
+
+Honk! Honk! delivers first: an alert is never lost to an optional field. The server refuses
+only what it cannot deliver (no title and no message, an unknown field or event type, a bad
+key, …) and corrects everything else: it shortens a title that is too long, leaves out an
+invalid URL or button, moves a TTL into range, lowers `urgent` to `high` for a key without
+*allow urgent*. The SDK does not check field contents itself; it returns what the server
+corrected:
+
+```go
+acc, err := c.Honk(ctx, m)
+if err == nil {
+	for _, w := range acc.Warnings { // []honk.Warning{Field, Code, Message}
+		log.Printf("honk: %s", w) // "title truncated: at most 160 characters; shortened"
+	}
+}
+```
+
+`Code` is one of `honk.WarningTruncated`, `WarningNormalized`, `WarningIgnored`,
+`WarningClamped`, `WarningDowngraded` and `WarningHashed`. Warnings are never errors: the
+message was accepted. Set `Options.Logger` (a `*slog.Logger`) to log every warning at `Warn`
+level instead. The CLI prints them to stderr (`honk: warning: …`).
 
 ## Retries and idempotency, guaranteed
 
@@ -232,14 +246,19 @@ honk.New(honk.Options{
 
 ## Errors
 
-Errors are `*honk.Error` (`Kind`, `Status`, `Code`, `Fields`, `Local`, `RequestID`,
-`IdempotencyKey`, `Attempts`, `RetryAfter`, `Retryable()`), and match sentinels with
-`errors.Is`:
+Errors are `*honk.Error` (`Kind`, `Status`, `Code`, `Message`, `Fields`, `Local`,
+`RequestID`, `IdempotencyKey`, `Attempts`, `RetryAfter`, `Retryable()`), and match sentinels
+with `errors.Is`. `err.Error()` carries what the server said, the refused fields and the
+request ID:
+
+```
+honk: 422 validation_failed: Request validation failed (event_type invalid_enum: must be one of event, problem, recovery) [request req_01k6…]
+```
 
 | Sentinel / Kind | When | What to do |
 |---|---|---|
-| `ErrValidation` / `KindValidation` | rejected locally (`Local`) or `400`/`413`/`415`/`422`; `Fields` lists every problem | fix the message |
-| `ErrAuth` / `KindAuth` | `401 invalid_key`, `403 priority_not_allowed`, `project_suspended`, `workspace_suspended` | fix the key or the priority |
+| `ErrValidation` / `KindValidation` | `400`/`413`/`415`/`422` (no title or message, invalid JSON, over 16 KiB, unknown field or event type), or `Local`: nothing to send | fix the message |
+| `ErrAuth` / `KindAuth` | `401 invalid_key`, `403 project_suspended`, `workspace_suspended` | fix the key |
 | `ErrQuota` / `KindQuota` | `429 quota_exceeded` (daily, resets at UTC midnight) or `rate_limited`, after retries | retry after `RetryAfter` |
 | `ErrConflict` / `KindConflict` | `409 idempotency_conflict`: same key, different payload | new key or original payload |
 | `ErrNetwork` / `KindNetwork` | unreachable on every attempt | retry later, same key |
@@ -319,15 +338,17 @@ up to 3; split at the first `=`), `--meta k=v` / `--meta k:=3` (repeatable), `--
 `--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`, `--retries`, `--json`,
 `--quiet`, `--dry-run`. `honk send -h` lists them all.
 
-On success it prints the message ID (or JSON with `--json`). Exit codes:
+On success it prints the message ID (or JSON with `--json`, including `warnings`), and the
+server's warnings to stderr as `honk: warning: …` (`--quiet` prints nothing). The group key of
+`uhoh`/`phew` is optional with the flags. Exit codes:
 
 | Code | Meaning |
 |---|---|
 | 0 | accepted (or a duplicate of an accepted event) |
 | 1 | unexpected answer (wrong `HONK_URL`, redirect, malformed reply) |
 | 2 | usage error, or `HONK_URL` / `HONK_KEY` missing |
-| 3 | invalid message: fix the flags |
-| 4 | authentication: invalid/revoked key, urgent not allowed, suspended project |
+| 3 | refused by the server: fix the flags (stderr names the fields) |
+| 4 | authentication: invalid/revoked key, suspended project |
 | 5 | quota or rate limit (`429`); stderr shows `Retry-After` |
 | 6 | idempotency conflict (`409`): same key, different payload |
 | 7 | temporary failure (network, timeout, `5xx`) after retries: rerun with the same `--idempotency-key` |

@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Severity of a message, lowest to highest. Error and critical raise the effective priority
-// to at least high. Every severity has a horn name on the Honk scale (Light, Beep, Loud, Long,
+// Severity of a message, lowest to highest: the level alone decides how loudly a push
+// interrupts. Every severity has a horn name on the Honk scale (Light, Beep, Loud, Long,
 // Blast); those constants are aliases of the canonical values.
 type Severity string
 
@@ -46,7 +46,8 @@ func ParseSeverity(s string) (Severity, bool) {
 	return c, ok
 }
 
-// Priority declared by the source. Urgent needs an ingestion key with allow_urgent.
+// Priority declared by the source. Urgent is kept only from an ingestion key with
+// allow_urgent; from any other key the server lowers it to high (a "downgraded" warning).
 type Priority string
 
 const (
@@ -56,8 +57,8 @@ const (
 	PriorityUrgent Priority = "urgent"
 )
 
-// EventType: a problem opens an incident for its group, a recovery closes it. Both need a
-// GroupKey.
+// EventType: a problem opens an incident for its group, a recovery closes it. Without a
+// GroupKey a message groups by its title.
 type EventType string
 
 const (
@@ -82,65 +83,57 @@ const (
 	CategoryOther          Category = "other"
 )
 
-var (
-	severities = []Severity{SeverityInfo, SeveritySuccess, SeverityWarning, SeverityError, SeverityCritical}
-	priorities = []Priority{PriorityLow, PriorityNormal, PriorityHigh, PriorityUrgent}
-	eventTypes = []EventType{EventTypeEvent, EventTypeProblem, EventTypeRecovery}
-	categories = []Category{CategoryInfrastructure, CategorySecurity, CategoryBackups, CategoryDeployments,
-		CategoryPayments, CategoryCustomers, CategorySales, CategoryAutomation, CategoryPersonal, CategoryOther}
-)
+var severities = []Severity{SeverityInfo, SeveritySuccess, SeverityWarning, SeverityError, SeverityCritical}
 
-// Message is one event for POST /v1/messages. Only Message is required; zero values are
-// omitted, so the server defaults apply (severity info, priority normal, source "api",
+// Message is one event for POST /v1/messages. A Title or a Message is required; zero values
+// are omitted, so the server defaults apply (severity info, priority normal, source "api",
 // environment "default", channel "general", event type event, TTL 3600 s).
+//
+// The SDK sends the fields as given. The server shortens, normalizes or leaves out what it
+// cannot use and accepts the message anyway; Accepted.Warnings says what it changed.
 type Message struct {
-	// Title is one line, at most 160 characters. Defaults to the first line of Message.
+	// Title is one line (≤ 160 characters). Defaults to the first line of Message.
 	Title string
-	// Message is plain text, 1–8192 bytes of UTF-8. Line breaks and tabs are allowed.
+	// Message is plain text (≤ 8192 bytes). Line breaks and tabs are kept.
 	Message string
-	// Severity: a horn name (Light, Beep, Loud, Long, Blast) or canonical value; any case.
-	// Sent canonical. Default light (info).
+	// Severity is the level: a horn name (Light, Beep, Loud, Long, Blast) or canonical value,
+	// any case. Sent canonical. Default light (info).
 	Severity Severity
 	Priority Priority
 	Category Category
-	// Source (≤ 64), Environment (≤ 32) and Channel (≤ 64) default to the client's Defaults.
+	// Source, Environment and Channel default to the client's Defaults.
 	Source      string
 	Environment string
 	Channel     string
-	// GroupKey (≤ 128) relates occurrences: messages with the same key (per environment,
+	// GroupKey relates occurrences (optional): messages with the same key (per environment,
 	// source and channel) form one group, so the first one pushes and repeats update it calmly.
-	// Use one key per customer request ("requests/<id>"), a shared key only for repeats of the
-	// same problem.
+	// Without one a message groups by its title.
 	GroupKey  string
 	EventType EventType
 	// OccurredAt is when it happened at the source (informational). Zero means unset.
 	OccurredAt time.Time
-	// URL is an https link shown as "Open link" (no credentials, ≤ 2048 bytes).
+	// URL is an https link shown as "Open link".
 	URL string
-	// ImageURL is an https image the server fetches after ingestion (no credentials or
-	// fragment, ≤ 2048 bytes).
+	// ImageURL is an https image the server fetches after ingestion.
 	ImageURL string
-	// Actions are up to 3 buttons, in display order (the first is the primary). Empty means
-	// none.
+	// Actions are up to 3 buttons, in display order (the first is the primary).
 	Actions []Action
-	// Metadata has at most 16 keys matching [A-Za-z0-9_.-]{1,64}; values are strings
-	// (≤ 512 characters), numbers or booleans.
+	// Metadata: up to 16 keys; values are strings, numbers or booleans.
 	Metadata map[string]any
 	// TTLSeconds is the push lifetime, 60–86400. Zero means the server default (3600).
 	TTLSeconds int
-	// SourceSequence is a monotonic counter per source stream (0 … 2^53-1) so a delayed
-	// recovery can never close a newer problem. Requires GroupKey. Use honk.Ptr(n).
+	// SourceSequence is a monotonic counter per source stream so a delayed recovery can never
+	// close a newer problem. Use honk.Ptr(n).
 	SourceSequence *int64
 }
 
 // Action is a button on a message. Honk never opens or fetches the URL; the app opens it when
 // the user taps the button.
 type Action struct {
-	// Title is 1–40 characters (trimmed), one line, shown as sent: "Reply", "Call Maria".
+	// Title is shown as sent (≤ 40 characters): "Reply", "Call Maria".
 	Title string `json:"title"`
-	// URL is https:// (no credentials), mailto: with one address (?subject=…&body=…
-	// percent-encoded, no other keys), tel: or sms: with a number (sms: also ?body=…), at most
-	// 2048 bytes without spaces. Other schemes are refused.
+	// URL is https://, mailto:, tel: or sms:. The server leaves out an action it cannot use
+	// (an "ignored" warning) and keeps the others.
 	URL string `json:"url"`
 }
 
@@ -160,7 +153,39 @@ type Accepted struct {
 	Duplicate bool `json:"duplicate"`
 	// ReceivedAt is when the server accepted it (the first time, for a duplicate).
 	ReceivedAt time.Time `json:"received_at"`
+	// Warnings lists what the server corrected before accepting the message (a title
+	// shortened, an invalid URL left out, urgent lowered to high, …). Empty when nothing.
+	Warnings []Warning `json:"warnings"`
 }
+
+// Warning is one correction the server made to an accepted message. Warnings are not errors:
+// the message was delivered. Log them so you can fix the sender.
+type Warning struct {
+	// Field is the wire name: "title", "metadata.order", "actions[1].url", …
+	Field string `json:"field"`
+	// Code is one of the Warning* constants (other values may be added).
+	Code string `json:"code"`
+	// Message says, in English, what was wrong and what was done.
+	Message string `json:"message"`
+}
+
+func (w Warning) String() string {
+	s := w.Field + " " + w.Code
+	if w.Message != "" {
+		s += ": " + w.Message
+	}
+	return s
+}
+
+// Warning codes (Warning.Code).
+const (
+	WarningTruncated  = "truncated"  // shortened to the limit ("…" for text)
+	WarningNormalized = "normalized" // rewritten into an accepted form (one line, control characters, type)
+	WarningIgnored    = "ignored"    // an invalid value left out; the default applies
+	WarningClamped    = "clamped"    // a number moved into its range
+	WarningDowngraded = "downgraded" // a priority the key may not send, lowered
+	WarningHashed     = "hashed"     // a long group key shortened with a hash
+)
 
 // Ptr returns a pointer to v, e.g. Message{SourceSequence: honk.Ptr[int64](42)}.
 func Ptr[T any](v T) *T { return &v }
@@ -168,7 +193,7 @@ func Ptr[T any](v T) *T { return &v }
 // wireMessage is the exact JSON of contracts/openapi.yaml MessageRequest.
 type wireMessage struct {
 	Title          string         `json:"title,omitempty"`
-	Message        string         `json:"message"`
+	Message        string         `json:"message,omitempty"`
 	Severity       Severity       `json:"severity,omitempty"`
 	Priority       Priority       `json:"priority,omitempty"`
 	Category       Category       `json:"category,omitempty"`

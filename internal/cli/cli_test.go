@@ -86,11 +86,39 @@ func TestActionFlags(t *testing.T) {
 	if want := `[{"title":"Reply","url":"mailto:emily@example.com?subject=Your%20quote"},{"title":"Call Emily","url":"tel:+15550134"}]`; string(got) != want {
 		t.Fatalf("actions\n got %s\nwant %s", got, want)
 	}
-	if code, _, e := runCLI(t, env, "", "send", "--message", "x", "--action", "Run=javascript:alert(1)"); code != exitInvalid || !strings.Contains(e, "actions[0].url") {
-		t.Errorf("invalid action: %d %q", code, e)
+	// The CLI sends actions as given; the server leaves out what it cannot use (a warning).
+	if code, _, e := runCLI(t, env, "", "send", "--message", "x", "--action", "Run=javascript:alert(1)"); code != exitOK || e != "" {
+		t.Errorf("action sent as given: %d %q", code, e)
 	}
-	if len(m.bodies) != 1 {
-		t.Errorf("an invalid action was sent: %v", m.bodies)
+	if len(m.bodies) != 2 {
+		t.Errorf("%d requests", len(m.bodies))
+	}
+}
+
+const acceptedWithWarnings = `{"id":"msg_1","status":"accepted","duplicate":false,"received_at":"2026-10-02T21:10:00.123Z","warnings":[` +
+	`{"field":"actions[0].url","code":"ignored","message":"not an https, mailto, tel or sms URL; the action was left out"},` +
+	`{"field":"ttl_seconds","code":"clamped","message":"5 is below 60; sent as 60"}]}`
+
+func TestWarningsArePrinted(t *testing.T) {
+	m := newCLIMock(t, 202, acceptedWithWarnings, nil)
+	env := map[string]string{"HONK_URL": m.URL, "HONK_KEY": testKey}
+	args := []string{"send", "--message", "x", "--action", "Run=javascript:alert(1)", "--ttl", "5"}
+	code, out, e := runCLI(t, env, "", args...)
+	if code != exitOK || out != "msg_1\n" || e != "honk: warning: actions[0].url ignored: not an https, mailto, tel or sms URL; the action was left out\n"+
+		"honk: warning: ttl_seconds clamped: 5 is below 60; sent as 60\n" {
+		t.Fatalf("code %d out %q stderr %q", code, out, e)
+	}
+	code, out, _ = runCLI(t, env, "", append(args, "--json")...)
+	if code != exitOK || !strings.Contains(out, `"warnings":[{"field":"actions[0].url","code":"ignored",`) {
+		t.Fatalf("--json: %d %q", code, out)
+	}
+	if code, out, e := runCLI(t, env, "", append(args, "--quiet")...); code != exitOK || out != "" || e != "" {
+		t.Fatalf("--quiet: %d %q %q", code, out, e)
+	}
+	plain := newCLIMock(t, 202, accepted, nil)
+	_, out, _ = runCLI(t, map[string]string{"HONK_URL": plain.URL, "HONK_KEY": testKey}, "", "send", "--message", "x", "--json")
+	if !strings.Contains(out, `"warnings":[]`) {
+		t.Fatalf("--json without warnings: %q", out)
 	}
 }
 
@@ -123,9 +151,10 @@ func TestExitCodes(t *testing.T) {
 		want    int
 		stderr  string
 	}{
-		{"validation", 422, `{"error":{"code":"validation_failed","message":"Request validation failed","fields":[{"field":"x","code":"invalid_enum"}]}}`, nil, exitInvalid, "invalid_enum"},
+		{"validation", 422, `{"error":{"code":"validation_failed","message":"Request validation failed","fields":[{"field":"event_type","code":"invalid_enum","message":"must be one of event, problem, recovery"}],"request_id":"req_7"}}`,
+			nil, exitInvalid, "honk: 422 validation_failed: Request validation failed (event_type invalid_enum: must be one of event, problem, recovery) [request req_7]\n"},
 		{"auth", 401, `{"error":{"code":"invalid_key","message":"Invalid or revoked ingestion key"}}`, nil, exitAuth, "invalid_key"},
-		{"urgent", 403, `{"error":{"code":"priority_not_allowed","message":"no urgent"}}`, nil, exitAuth, "priority_not_allowed"},
+		{"suspended", 403, `{"error":{"code":"project_suspended","message":"suspended"}}`, nil, exitAuth, "project_suspended"},
 		{"quota", 429, `{"error":{"code":"quota_exceeded","message":"Daily quota"}}`, map[string]string{"Retry-After": "3600"}, exitQuota, "Retry-After 1h0m0s"},
 		{"conflict", 409, `{"error":{"code":"idempotency_conflict","message":"different payload"}}`, nil, exitConflict, "idempotency_conflict"},
 		{"server", 503, `{"error":{"code":"unavailable","message":"paused"}}`, map[string]string{"Retry-After": "60"}, exitTemporary, "--idempotency-key"},
@@ -152,15 +181,14 @@ func TestUsageErrors(t *testing.T) {
 	}{
 		{nil, env, exitUsage, "Usage"},
 		{[]string{"shout"}, env, exitUsage, "unknown command"},
-		{[]string{"send"}, env, exitUsage, "--message is required"},
+		{[]string{"send"}, env, exitUsage, "--message or --title is required"},
+		{[]string{"send", "--message", " ", "--title", ""}, env, exitUsage, "--message or --title is required"},
 		{[]string{"send", "--message", "x", "extra"}, env, exitUsage, "unexpected argument"},
-		{[]string{"problem", "--message", "x"}, env, exitUsage, "needs --group-key"},
 		{[]string{"send", "--message", "x", "--occurred-at", "yesterday"}, env, exitUsage, "RFC 3339"},
 		{[]string{"send", "--message", "x", "--meta", "novalue"}, env, exitUsage, "key=value"},
 		{[]string{"send", "--message", "x", "--action", "tel:+15550134"}, env, exitUsage, "TITLE=URL"},
 		{[]string{"send", "--message", "x"}, map[string]string{"HONK_KEY": testKey}, exitUsage, "HONK_URL"},
 		{[]string{"send", "--message", "x"}, map[string]string{"HONK_URL": "https://h"}, exitUsage, "HONK_KEY"},
-		{[]string{"send", "--message", "x", "--severity", "fatal"}, env, exitInvalid, "severity must be one of"},
 	} {
 		code, _, errOut := runCLI(t, tc.env, "", tc.args...)
 		if code != tc.want || !strings.Contains(errOut, tc.msg) {
@@ -215,9 +243,14 @@ func TestUhohPhewAreProblemRecovery(t *testing.T) {
 	if code, _, e := runCLI(t, env, "", "phew", "--message", "x", "--severity", "light", "--group-key", "g", "--dry-run"); code != exitOK || e != "" {
 		t.Errorf("phew --severity: %d %q", code, e)
 	}
+	// The group key is optional: without one the message groups by its title.
 	for _, cmd := range []string{"uhoh", "phew"} {
-		if code, _, e := runCLI(t, env, "", cmd, "--message", "x"); code != exitUsage || e != "honk: "+cmd+" needs --group-key\n" {
-			t.Errorf("%s without --group-key: %d %q", cmd, code, e)
+		n := len(m.bodies)
+		if code, _, e := runCLI(t, env, "", cmd, "--title", "Oven", "--message", "x"); code != exitOK || e != "" {
+			t.Fatalf("%s without --group-key: %d %q", cmd, code, e)
+		}
+		if _, ok := m.bodies[n]["group_key"]; ok || m.bodies[n]["title"] != "Oven" {
+			t.Errorf("%s without --group-key: %v", cmd, m.bodies[n])
 		}
 	}
 }
@@ -290,7 +323,6 @@ func TestUhohPhewPositional(t *testing.T) {
 		{[]string{"problem", "g", "t", "m", "--title", "x", "--group-key", "h"}, "(got arguments and --group-key, --title)\n"},
 		{[]string{"uhoh", "Backup failed"}, "honk: uhoh takes GROUP_KEY [TITLE] MESSAGE (quote them), got 1 argument(s)\n"},
 		{[]string{"phew", "a", "b", "c", "d"}, "honk: phew takes GROUP_KEY [TITLE] MESSAGE (quote them), got 4 argument(s)\n"},
-		{[]string{"uhoh", "", "Exit code 1"}, "honk: uhoh needs --group-key\n"},
 		{[]string{"send", "backup/db-1", "x"}, `honk: unexpected argument "backup/db-1" (use --message)`},
 	} {
 		code, _, e := runCLI(t, env, "", tc.args...)
@@ -300,6 +332,10 @@ func TestUhohPhewPositional(t *testing.T) {
 	}
 	if len(m.bodies) != sent {
 		t.Errorf("a refused command was sent: %v", m.bodies[sent:])
+	}
+	// An empty GROUP_KEY argument sends no group key.
+	if code, _, e := runCLI(t, env, "", "uhoh", "", "Exit code 1"); code != exitOK || m.bodies[sent]["group_key"] != nil {
+		t.Errorf("empty GROUP_KEY: %d %q %v", code, e, m.bodies[sent])
 	}
 }
 
@@ -317,7 +353,7 @@ func TestHelpShowsHonk(t *testing.T) {
 	}
 	_, _, e := runCLI(t, nil, "", "uhoh", "-h")
 	if !strings.HasPrefix(e, "Usage: honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]\n   or: honk uhoh --group-key KEY [--title TEXT] --message TEXT [flags]\n") ||
-		!strings.Contains(e, "uhoh/phew need one: this flag or the GROUP_KEY argument") {
+		!strings.Contains(e, "optional; without one a message groups by its title") {
 		t.Errorf("uhoh -h: %q", e)
 	}
 	if _, _, e := runCLI(t, nil, "", "recovery", "-h"); !strings.HasPrefix(e, "Usage: honk recovery GROUP_KEY [TITLE] MESSAGE [flags]\n") {
@@ -364,7 +400,7 @@ func TestHornShortcutSubcommands(t *testing.T) {
 	if code, _, e := runCLI(t, env, "", "loud", "a", "b", "c"); code != exitUsage || !strings.Contains(e, "[TITLE] MESSAGE") {
 		t.Errorf("three positionals: %d %q", code, e)
 	}
-	if code, _, e := runCLI(t, env, "", "loud"); code != exitUsage || !strings.Contains(e, "--message is required") {
+	if code, _, e := runCLI(t, env, "", "loud"); code != exitUsage || !strings.Contains(e, "--message or --title is required") {
 		t.Errorf("no message: %d %q", code, e)
 	}
 	if code, _, e := runCLI(t, env, "", "loud", "x", "--severity", "light"); code != exitUsage {
