@@ -16,8 +16,8 @@ const (
 	KindValidation Kind = "validation"
 	// KindAuth: 401/403 — invalid or revoked key, project_suspended, workspace_suspended.
 	KindAuth Kind = "auth"
-	// KindQuota: 429 quota_exceeded (daily messages_per_day, until UTC midnight) or
-	// rate_limited, after retries. See RetryAfter.
+	// KindQuota: 429 quota_exceeded (daily messages_per_day, until UTC midnight),
+	// rate_limited or overloaded (server backpressure), after retries. See RetryAfter.
 	KindQuota Kind = "quota"
 	// KindConflict: 409 idempotency_conflict — the key was already used with a different
 	// payload in the last 24 hours.

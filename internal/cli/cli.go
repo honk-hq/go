@@ -69,14 +69,17 @@ func usage() string {
 
 Usage:
   honk light|beep|loud|long|blast [TITLE] MESSAGE [flags]   shortcut with that severity
-  honk send --message TEXT [--title TEXT] [flags]
+  honk send [--title TEXT] [--message TEXT] [flags]   a title, a message or both
   honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]   something broke (event_type problem, severity long)
   honk phew GROUP_KEY [TITLE] MESSAGE [flags]   it works again (event_type recovery, severity beep)
   honk version
 
 uhoh and phew: two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE. They
-also take --group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both);
-the group key is optional there.
+also take [--group-key KEY] [--title TEXT] [--message TEXT] instead of the arguments (not both);
+there the group key is optional and a title or a message is enough.
+
+Retries: --retries N retries network errors, 429 and 5xx up to N times after the first attempt
+(default 4); --retries 0 means no retries (one attempt).
 
 Honk delivers first: what the server corrects (a title too long, an invalid URL, …) is
 accepted and printed to stderr as "honk: warning: …" (not with --quiet).
@@ -141,7 +144,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 		dryRun     bool
 	)
 	fs.StringVar(&m.Title, "title", "", "one-line title, ≤ 160 characters (default: first line of the message)")
-	fs.StringVar(&m.Message, "message", "", `message text, ≤ 8192 bytes; "-" reads stdin (e.g. "tail -c 8000 log | honk send --message -")`)
+	fs.StringVar(&m.Message, "message", "", `message text, ≤ 8192 bytes; "-" reads stdin (e.g. "tail -c 8000 log | honk send --message -"); optional when --title is set`)
 	if shortcut {
 		m.Severity = severity
 	} else {
@@ -166,7 +169,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 	fs.StringVar(&key, "idempotency-key", getenv("HONK_IDEMPOTENCY_KEY"), "stable key for this event, reused on retries; default a new UUIDv7")
 	fs.DurationVar(&timeout, "timeout", 5*time.Second, "timeout of one attempt")
 	fs.DurationVar(&dead, "deadline", 30*time.Second, "total time budget, retries included")
-	fs.IntVar(&retries, "retries", 4, "retries after the first attempt (network errors, 429, 5xx)")
+	fs.IntVar(&retries, "retries", 4, "retries after the first attempt (network errors, 429, 5xx); 0 = no retries")
 	fs.BoolVar(&asJSON, "json", false, `print {"id","duplicate","received_at","warnings"} instead of the id`)
 	fs.BoolVar(&quiet, "quiet", false, "print nothing on success (not even the server's warnings)")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the JSON body without sending")
@@ -176,7 +179,7 @@ func run(ctx context.Context, args []string, getenv func(string) string) int {
 			fmt.Fprintf(stderr, "Usage: %s %s [TITLE] MESSAGE [flags]\n\nFlags:\n", prog, cmd)
 		case eventType != "":
 			fmt.Fprintf(stderr, "Usage: %s %s GROUP_KEY [TITLE] MESSAGE [flags]\n", prog, cmd)
-			fmt.Fprintf(stderr, "   or: %s %s --group-key KEY [--title TEXT] --message TEXT [flags]\n\nFlags:\n", prog, cmd)
+			fmt.Fprintf(stderr, "   or: %s %s [--group-key KEY] [--title TEXT] [--message TEXT] [flags]\n\nFlags:\n", prog, cmd)
 		default:
 			fmt.Fprintf(stderr, "Usage: %s %s [flags]\n\nFlags:\n", prog, cmd)
 		}

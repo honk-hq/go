@@ -477,6 +477,25 @@ func TestTimeoutError(t *testing.T) {
 	}
 }
 
+func TestTimeoutMessageIsRounded(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		2999999666 * time.Nanosecond: "3s",
+		5 * time.Second:              "5s",
+		1249 * time.Millisecond:      "1.2s",
+		50 * time.Millisecond:        "50ms",
+		999999 * time.Microsecond:    "1s",
+	} {
+		if got := roundTimeout(d).String(); got != want {
+			t.Errorf("roundTimeout(%s) = %s, want %s", d, got, want)
+		}
+	}
+	m := newMock(t, step{status: 202, delay: 500 * time.Millisecond, body: okStep(false).body})
+	_, err := client(t, m.URL, func(o *Options) { o.Timeout = 50 * time.Millisecond; o.Retries = NoRetries }).Send(context.Background(), Message{Message: "x"})
+	if he := asError(t, err); !strings.Contains(he.Message, "no answer within 50ms (") {
+		t.Fatalf("message = %q", he.Message)
+	}
+}
+
 func TestConnectionRefused(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	addr := ln.Addr().String()

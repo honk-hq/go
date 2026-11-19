@@ -259,7 +259,7 @@ honk: 422 validation_failed: Request validation failed (event_type invalid_enum:
 |---|---|---|
 | `ErrValidation` / `KindValidation` | `400`/`413`/`415`/`422` (no title or message, invalid JSON, over 16 KiB, unknown field or event type), or `Local`: nothing to send | fix the message |
 | `ErrAuth` / `KindAuth` | `401 invalid_key`, `403 project_suspended`, `workspace_suspended` | fix the key |
-| `ErrQuota` / `KindQuota` | `429 quota_exceeded` (daily, resets at UTC midnight) or `rate_limited`, after retries | retry after `RetryAfter` |
+| `ErrQuota` / `KindQuota` | `429 quota_exceeded` (daily, resets at UTC midnight), `rate_limited` or `overloaded` (server backpressure), after retries | retry after `RetryAfter` |
 | `ErrConflict` / `KindConflict` | `409 idempotency_conflict`: same key, different payload | new key or original payload |
 | `ErrNetwork` / `KindNetwork` | unreachable on every attempt | retry later, same key |
 | `ErrTimeout` / `KindTimeout` | attempts (or the context) timed out; maybe stored | retry later, same key |
@@ -335,8 +335,10 @@ both ways at once (that is a usage error, exit 2). `send` takes flags only. The 
 `--source`, `--environment`, `--channel`, `--group-key`, `--event-type` (send only),
 `--occurred-at` (RFC 3339 or `now`), `--url`, `--image-url`, `--action TITLE=URL` (repeatable,
 up to 3; split at the first `=`), `--meta k=v` / `--meta k:=3` (repeatable), `--ttl`,
-`--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`, `--retries`, `--json`,
-`--quiet`, `--dry-run`. `honk send -h` lists them all.
+`--source-sequence`, `--idempotency-key`, `--timeout`, `--deadline`, `--retries` (default 4;
+`0` = no retries, unlike `Options.Retries` where `0` means the default), `--json`, `--quiet`,
+`--dry-run`. `honk send -h` lists them all. A title alone is enough: `--message` is optional
+when `--title` is set.
 
 On success it prints the message ID (or JSON with `--json`, including `warnings`), and the
 server's warnings to stderr as `honk: warning: …` (`--quiet` prints nothing). The group key of
@@ -371,6 +373,8 @@ serves the module (see `CHANGELOG.md`).
 - [honk-honk.app](https://honk-honk.app): the Honk! Honk! inbox (web, iPhone).
 - Other SDKs: [Node.js](https://github.com/honk-hq/node),
   [PHP / Laravel](https://github.com/honk-hq/php), [Swift](https://github.com/honk-hq/honk-swift),
-  [Kotlin / Java](https://github.com/honk-hq/kotlin).
+  [Kotlin / Java](https://github.com/honk-hq/kotlin), [Rust](https://github.com/honk-hq/rust).
+- No code: [n8n node](https://github.com/honk-hq/n8n) (`n8n-nodes-honk`) and the
+  [WordPress plugin](https://github.com/honk-hq/wordpress).
 
 MIT License.

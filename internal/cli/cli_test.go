@@ -346,20 +346,22 @@ func TestHelpShowsHonk(t *testing.T) {
 	}
 	for _, want := range []string{"honk " + honk.Version + " — send an event to Honk! Honk!\n", "\n  honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]",
 		"\n  honk phew GROUP_KEY [TITLE] MESSAGE [flags]", "two arguments are GROUP_KEY MESSAGE, three are GROUP_KEY TITLE MESSAGE",
-		"--group-key KEY [--title TEXT] --message TEXT instead of the arguments (not both)", "\n  honk send", `Run "honk send -h"`} {
+		"[--group-key KEY] [--title TEXT] [--message TEXT] instead of the arguments (not both)", "a title or a message is enough",
+		"\n  honk send [--title TEXT] [--message TEXT] [flags]", "--retries 0 means no retries", `Run "honk send -h"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help lacks %q:\n%s", want, out)
 		}
 	}
 	_, _, e := runCLI(t, nil, "", "uhoh", "-h")
-	if !strings.HasPrefix(e, "Usage: honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]\n   or: honk uhoh --group-key KEY [--title TEXT] --message TEXT [flags]\n") ||
+	if !strings.HasPrefix(e, "Usage: honk uhoh GROUP_KEY [TITLE] MESSAGE [flags]\n   or: honk uhoh [--group-key KEY] [--title TEXT] [--message TEXT] [flags]\n") ||
 		!strings.Contains(e, "optional; without one a message groups by its title") {
 		t.Errorf("uhoh -h: %q", e)
 	}
 	if _, _, e := runCLI(t, nil, "", "recovery", "-h"); !strings.HasPrefix(e, "Usage: honk recovery GROUP_KEY [TITLE] MESSAGE [flags]\n") {
 		t.Errorf("recovery -h: %q", e)
 	}
-	if _, _, e := runCLI(t, nil, "", "send", "-h"); !strings.HasPrefix(e, "Usage: honk send [flags]\n") {
+	if _, _, e := runCLI(t, nil, "", "send", "-h"); !strings.HasPrefix(e, "Usage: honk send [flags]\n") ||
+		!strings.Contains(e, "0 = no retries") || !strings.Contains(e, "optional when --title is set") {
 		t.Errorf("send -h: %q", e)
 	}
 	_, _, e = runCLI(t, nil, "", "loud", "-h")

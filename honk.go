@@ -17,7 +17,7 @@ import (
 )
 
 // Version of this SDK, sent in the User-Agent header.
-const Version = "0.4.1"
+const Version = "0.5.0"
 
 const (
 	defaultTimeout     = 5 * time.Second
@@ -278,9 +278,18 @@ func (c *Client) attempt(ctx context.Context, body []byte, key string, timeout t
 func transportError(ctx, actx context.Context, err error, timeout time.Duration, key string, attempt int) *Error {
 	if ctx.Err() == nil && errors.Is(actx.Err(), context.DeadlineExceeded) {
 		return &Error{Kind: KindTimeout, Code: "timeout", IdempotencyKey: key, Attempts: attempt, Err: err,
-			Message: fmt.Sprintf("no answer within %s (the event may or may not have been stored; retrying with the same idempotency key is safe)", timeout)}
+			Message: fmt.Sprintf("no answer within %s (the event may or may not have been stored; retrying with the same idempotency key is safe)", roundTimeout(timeout))}
 	}
 	return &Error{Kind: KindNetwork, Code: "network_error", Message: "could not reach Honk: " + err.Error(), IdempotencyKey: key, Attempts: attempt, Err: err}
+}
+
+// roundTimeout makes an attempt's timeout readable: the time left before the deadline
+// (2.999999666s) is shown to a tenth of a second (3s), a sub-second one to the millisecond.
+func roundTimeout(d time.Duration) time.Duration {
+	if d >= time.Second {
+		return d.Round(100 * time.Millisecond)
+	}
+	return d.Round(time.Millisecond)
 }
 
 func responseError(res *http.Response, data []byte, key string, attempt int) *Error {

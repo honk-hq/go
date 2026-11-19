@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
 The server now delivers first (contracts/API.md §5.1): it refuses only what it cannot deliver
 and corrects the rest, returning `warnings` with the `202`. The SDK becomes a thin wrapper.
 
@@ -34,6 +36,15 @@ and corrects the rest, returning `warnings` with the `202`. The SDK becomes a th
 
 ### Deprecated
 - `Options.SkipValidation`: has no effect.
+
+### Fixed
+- A timeout error shows the attempt's timeout rounded (`no answer within 3s`, not
+  `2.999999666s` when the deadline shortened the last attempt).
+- CLI: the help no longer says `--message` is required (a title alone is enough) and says
+  `--retries 0` means no retries (in the library, `Options.Retries: 0` means the default 4; use
+  `honk.NoRetries`).
+- README: the errors table says `429 overloaded` is `ErrQuota` too; the links list the Rust SDK
+  and the n8n node.
 
 ### Removed
 - The exported limit constants (`MaxTitle`, `MaxMessageBytes`, `MaxBodyBytes`, …): the server
